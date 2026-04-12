@@ -15,10 +15,10 @@ def format_context(context, max_length=6):
     """
     formatted_context = []
     for interaction in context[-max_length:]:
-        user_input = interaction.get("user_input", "")
+        prompt = interaction.get("prompt", "")
         response = interaction.get("response", "")
         feedback = interaction.get("feedback", "")
-        entry = f"User: {user_input}\nAssistant: {response}\nFeedback: {feedback}"
+        entry = f"User: {prompt}\nAssistant: {response}\nFeedback: {feedback}"
         formatted_context.append(entry)
     return "\n".join(formatted_context)
 
@@ -40,7 +40,8 @@ def generate_ollama_response(payload):
 
 async def query_llm(prompt, context=[]):
     # We tell the router what the last response was so it can detect if the user is giving feedback
-    last_resp = context[-1].get('response', 'None') if context else 'None'
+    last_resp = context[-1].get('response', None) if context else None
+    print(f"\nDEBUG: Last assistant response for router: {last_resp}")
     
     router_prompt = f"""
     You are a high-speed triage router for a medical AI agent.
@@ -78,11 +79,17 @@ async def query_llm(prompt, context=[]):
     except json.JSONDecodeError as e:
         print(f"Router output was not valid JSON: {e}")
     
-    if category and category == 'FEEDBACK':
-        context[-1]['feedback'] = prompt if context else {}
+    if category and category == 'FEEDBACK':        
+        if last_resp:
+            if context:
+                context[-1]['feedback'] = prompt
+        else:
+            print("\nDEBUG: No previous response to attach feedback to.")
+            return "Sorry, I couldn't find the previous response to attach your feedback to. Please try again."
     
     formatted_context = format_context(context)
-    medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
+    # medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
+    medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question: {prompt}"
     
     data = {
         "model": MODEL_NAME,
@@ -126,12 +133,11 @@ async def main():
         if response is not None:
             text = response.get("response", "").strip()
             if text:
-                print("Response from LLM:")
-                print(text)
+                print(f"Assistant response:\n {text}")
             else:
-                print("Response from LLM is empty. Check the prompt or model configuration.")
+                print("Response from Assistant is empty. Check the prompt or model configuration.")
         else:
-            print("Failed to get a response from the LLM.")
+            print("Failed to get a response from the Assistant.")
 
         context.append({
             "prompt": prompt,

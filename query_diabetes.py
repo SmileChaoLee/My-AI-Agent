@@ -4,8 +4,6 @@ import time
 import ollama
 import json
 
-# Define the base URL for the LLM API
-BASE_URL = "http://127.0.0.1:11434"  # Replace with the actual base URL if different
 # MODEL_NAME = "llama3.3:latest"
 # MODEL_NAME = "alibayram/medgemma:27b"
 MODEL_NAME = "MedAIBase/MedGemma1.5:4b"
@@ -16,17 +14,18 @@ def format_context(context, max_length=6):
     """
     formatted_context = []
     for interaction in context[-max_length:]:
-        user_input = interaction.get("user_input", "")
+        prompt = interaction.get("prompt", "")
         response = interaction.get("response", "")
         feedback = interaction.get("feedback", "")
-        entry = f"User: {user_input}\nAssistant: {response}\nFeedback: {feedback}"
+        entry = f"User: {prompt}\nAssistant: {response}\nFeedback: {feedback}"
         formatted_context.append(entry)
     return "\n".join(formatted_context)
 
 async def query_llm(prompt, context=[]):
     # We tell the router what the last response was so it can detect if the user is giving feedback
-    last_resp = context[-1].get('response', 'None') if context else 'None'
-    
+    last_resp = context[-1].get('response', None) if context else None
+    print(f"\nDEBUG: Last assistant response for router: {last_resp}")
+
     router_prompt = f"""
     You are a high-speed triage router for a medical AI agent. 
     Analyze the user's input and the previous interaction to determine the intent.
@@ -51,9 +50,16 @@ async def query_llm(prompt, context=[]):
     print(f"\nDEBUG: Router categorized the input as: {category}")
 
     if category == 'FEEDBACK':
-        context[-1]['feedback'] = prompt if context else {}                
+        if last_resp:
+            if context:
+                context[-1]['feedback'] = prompt
+        else:
+            print("\nDEBUG: No previous response to attach feedback to.")
+            return "Sorry, I couldn't find the previous response to attach your feedback to. Please try again."
+            
     formatted_context = format_context(context)
-    medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
+    # medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
+    medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question: {prompt}"
     response = ollama.generate(
         model=MODEL_NAME,
         prompt=medical_prompt,
@@ -88,7 +94,7 @@ async def main():
         print(f"\nTime taken for response: {duration:.2f} seconds\n")
 
         if response is not None:
-            print(f"Assistant: {response}")
+            print(f"Assistant response:\n {response}")
         else:
             print("Failed to get a response from the LLM.")
 
