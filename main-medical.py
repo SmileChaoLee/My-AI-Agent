@@ -51,7 +51,6 @@ def agent_workflow(user_input, context=[]):
 
     result = json.loads(response['response'])
     category = result.get("category", "GENERAL")
-    formatted_context = format_context(context)
 
     # 2. THE HAND-OFF LOGIC
     if category == 'FEEDBACK':
@@ -59,6 +58,7 @@ def agent_workflow(user_input, context=[]):
         # feedback_prompt = f"The user is providing feedback on your last response. Acknowledge it politely and briefly.\n\nLast Response: {last_resp}\nUser Feedback: {user_input}"
         # feedback_response = ollama.generate(model=last_model_used[0], prompt=feedback_prompt)
         # return feedback_response['response']
+        context[-1]['feedback'] = user_input if context else {}
         if last_resp:
             if last_model_used[0] == MEDICAL_MODEL:
                 category = 'MEDICAL'
@@ -72,6 +72,8 @@ def agent_workflow(user_input, context=[]):
         else:
             return "No question provided before"
     
+    formatted_context = format_context(context)
+
     if category == 'MEDICAL':
         last_model_used[0] = MEDICAL_MODEL
         print(f"DEBUG: Routed to Medical Expert (Llama 3.2) | Category: {category}\n")
@@ -117,24 +119,18 @@ def main():
         print("\nProcessing your request, please wait...\n")        
         start_time = time.time()    
         
-        # FIX 1: Pass the context into the function!
         response = agent_workflow(user_input, context)
         
         end_time = time.time()    
         print(f"Time taken for response: {end_time - start_time:.2f} seconds\n")
         print("Response from Agent Workflow:")
         print(response)
-
-        # FIX 2: Instead of asking for feedback via input(), we just save the interaction.
-        # If the user wants to give feedback, they will do it in the NEXT user_input turn.
+    
         context.append({
             "user_input": user_input,
             "response": response,
             "feedback": "" # Left empty; the Router will detect feedback in the next turn
         })
-        
-        # Optional: print current context to see it working
-        # print(f"\nCurrent context size: {len(context)} interactions")
-
+            
 if __name__ == "__main__":
     main()
