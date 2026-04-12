@@ -1,7 +1,6 @@
 import asyncio
 import requests
 import time
-import ollama
 import json
 
 # Define the base URL for the LLM API
@@ -23,12 +22,28 @@ def format_context(context, max_length=6):
         formatted_context.append(entry)
     return "\n".join(formatted_context)
 
+def generate_ollama_response(payload):
+    url = f"{BASE_URL}/api/generate"
+    headers = {"Content-Type": "application/json"}
+    with requests.post(url, headers=headers, json=payload, stream=True, timeout=60) as response:
+        response.raise_for_status()
+        text_parts = []
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            item = json.loads(line)
+            if "response" in item:
+                text_parts.append(item["response"])
+            if item.get("done"):
+                break
+    return "".join(text_parts)
+
 async def query_llm(prompt, context=[]):
     # We tell the router what the last response was so it can detect if the user is giving feedback
     last_resp = context[-1].get('response', 'None') if context else 'None'
     
     router_prompt = f"""
-    You are a high-speed triage router for a medical AI agent. 
+    You are a high-speed triage router for a medical AI agent.
     Analyze the user's input and the previous interaction to determine the intent.
 
     Categories:
@@ -37,32 +52,53 @@ async def query_llm(prompt, context=[]):
 
     Previous Assistant Response: {last_resp}
     User input: {prompt}
-    
-    Response format: {{"category": "LABEL"}}
+
+    Return only a single valid JSON object with exactly one field:
+    {{"category": "LABEL"}}
+    Do not include any markdown, explanation, code fences, or extra text.
     """
 
-    response = ollama.generate(
-        model=MODEL_NAME, 
-        prompt=router_prompt, 
-        format='json'
-    )
-    result = json.loads(response['response'])
-    category = result.get("category", "GENERAL")
-    print(f"\nDEBUG: Router categorized the input as: {category}")
-
-    if category == 'FEEDBACK':
-        context[-1]['feedback'] = prompt if context else {}                
+    category = None
+    router_data = {
+        "model": MODEL_NAME,
+        "prompt": router_prompt,
+        "max_tokens": 50,
+        "temperature": 0.0,
+        "format": "json",
+    }
+    try:
+        router_text = generate_ollama_response(router_data)
+        if router_text is None:
+            print("Router response was None.")
+        result = json.loads(router_text)
+        category = result.get("category", "GENERAL")
+        print(f"\nDEBUG: Router categorized the input as: {category}")
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {e}")
+    except json.JSONDecodeError as e:
+        print(f"Router output was not valid JSON: {e}")
+    
+    if category and category == 'FEEDBACK':
+        context[-1]['feedback'] = prompt if context else {}
+    
     formatted_context = format_context(context)
     medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
-    response = ollama.generate(
-        model=MODEL_NAME,
-        prompt=medical_prompt,
-        options={
-            'temperature': 0.1,
-            'top_p': 0.3
-        }
-    )
-    return response['response']
+    
+    data = {
+        "model": MODEL_NAME,
+        "prompt": medical_prompt,
+        "max_tokens": 500,  # Adjust the number of tokens as needed
+        "temperature": 0.2,  # Adjust the temperature for randomness
+    }
+    try:
+        medical_text = generate_ollama_response(data)
+        if medical_text is None:
+            print("Medical response was None.")
+            return None
+        return {"response": medical_text}
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {e}")
+        return None
 
 async def main():
     context = []
@@ -88,7 +124,12 @@ async def main():
         print(f"\nTime taken for response: {duration:.2f} seconds\n")
 
         if response is not None:
-            print(f"Assistant: {response}")
+            text = response.get("response", "").strip()
+            if text:
+                print("Response from LLM:")
+                print(text)
+            else:
+                print("Response from LLM is empty. Check the prompt or model configuration.")
         else:
             print("Failed to get a response from the LLM.")
 
