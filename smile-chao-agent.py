@@ -1,5 +1,7 @@
 import ollama
 import json
+import os
+import re
 import time
 
 ROUTER_MODEL_NAME = 'llama3.2:latest'
@@ -9,6 +11,49 @@ TECHNOLOGY_MODEL = 'qwen2.5-coder:7b'
 GENERAL_MODEL = 'llama3.2:latest'
 
 last_model_used = [CODE_MODEL]
+
+FILE_REQUEST_PATTERNS = [
+    r'\bread file\b',
+    r'\bopen file\b',
+    r'\bload file\b',
+    r'\bread from (the )?file\b',
+    r'\bsend.*file\b',
+    r'\battach file\b',
+    r'\bfile contents\b'
+]
+
+FILE_PATH_PATTERN = r'[A-Za-z0-9_\-./\\]+\.[A-Za-z0-9]+'
+
+
+def is_file_request(text):
+    text = text.lower()
+    return any(re.search(pattern, text) for pattern in FILE_REQUEST_PATTERNS)
+
+
+def extract_file_path(text):
+    # Try quoted file paths first
+    quoted = re.search(r'"([^"]+)"|\'([^\']+)\'', text)
+    if quoted:
+        return quoted.group(1) or quoted.group(2)
+
+    candidate_paths = re.findall(FILE_PATH_PATTERN, text)
+    for path in candidate_paths:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def read_file_contents(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        print(f"Error: file not found: {path}")
+    except PermissionError:
+        print(f"Error: permission denied for file: {path}")
+    except Exception as exc:
+        print(f"Error reading file {path}: {exc}")
+    return None
 
 def format_context(context, max_length=6):
     """
@@ -133,6 +178,21 @@ def main():
         if not text:
             print("Goodbye!")
             break
+
+        if is_file_request(user_input):
+            file_path = extract_file_path(user_input)
+            if not file_path:
+                file_path = input("Please enter the file path to read: ").strip()
+
+            file_contents = read_file_contents(file_path)
+            if file_contents is not None:
+                user_input = (
+                    f"Read the contents of the file at {file_path} and send it to the LLM:\n\n"
+                    f"File contents:\n{file_contents}"
+                )
+            else:
+                print("Could not read the requested file. Try again.")
+                continue
         
         print("\nProcessing your request, please wait...")        
         start_time = time.time()    
