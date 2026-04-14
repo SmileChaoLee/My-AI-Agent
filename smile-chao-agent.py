@@ -2,11 +2,13 @@ import ollama
 import json
 import time
 
-MEDICAL_MODEL = 'llama3.2:latest'
+ROUTER_MODEL_NAME = 'llama3.2:latest'
+MEDICAL_MODEL = 'MedAIBase/MedGemma1.5:4b'
 CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'
 TECHNOLOGY_MODEL = 'qwen2.5-coder:7b'
 GENERAL_MODEL = 'llama3.2:latest'
-last_model_used = [MEDICAL_MODEL]
+
+last_model_used = [CODE_MODEL]
 
 def format_context(context, max_length=6):
     """
@@ -44,22 +46,20 @@ def agent_workflow(user_input, context=[]):
     """
 
     response = ollama.generate(
-        model='llama3.2:latest', 
+        model=ROUTER_MODEL_NAME, 
         prompt=router_prompt, 
         format='json'
     )
 
     result = json.loads(response['response'])
     category = result.get("category", "GENERAL")
+    print(f"\nDEBUG: Router categorized the input as: {category}")
 
     # 2. THE HAND-OFF LOGIC
-    if category == 'FEEDBACK':
-        print(f"DEBUG: Recognized as Feedback | Category: {category}\n")
-        # feedback_prompt = f"The user is providing feedback on your last response. Acknowledge it politely and briefly.\n\nLast Response: {last_resp}\nUser Feedback: {user_input}"
-        # feedback_response = ollama.generate(model=last_model_used[0], prompt=feedback_prompt)
-        # return feedback_response['response']
-        context[-1]['feedback'] = user_input if context else {}
+    if category == 'FEEDBACK':        
         if last_resp:
+            if context:
+                context[-1]['feedback'] = user_input
             if last_model_used[0] == MEDICAL_MODEL:
                 category = 'MEDICAL'
             elif last_model_used[0] == CODE_MODEL:
@@ -70,7 +70,7 @@ def agent_workflow(user_input, context=[]):
                 # last_model_used[0] == GENERAL_MODEL:
                 category = 'GENERAL'
         else:
-            return "No question provided before"
+            return None
     
     formatted_context = format_context(context)
 
@@ -107,24 +107,45 @@ def main():
     justEntered = True
     while True:
         if justEntered:
-            user_input = input("How can I help you? (or type exit to quit): ")
+            print("\nHow can I help you? (or Enter to quit):")        
             justEntered = False
         else:
-            user_input = input("What else can I assist you with? (or type exit to quit): ")
+            print("\nWhat else can I assist you with? (or Enter to quit):")
         
-        if user_input.lower() == "exit":
+        text = []
+        while True:
+            if not text:
+                line = input('-> ')
+            else:
+                print("More? (or Enter to submit, or type 'exit' to quit)")
+                line = input('-> ')
+
+            if line.lower() == "exit":
+                print("Goodbye!")
+                return
+            
+            if not line:
+                break
+            text.append(line)        
+
+        user_input = "\n".join(text)
+
+        if not text:
             print("Goodbye!")
             break
         
-        print("\nProcessing your request, please wait...\n")        
+        print("\nProcessing your request, please wait...")        
         start_time = time.time()    
         
         response = agent_workflow(user_input, context)
         
         end_time = time.time()    
-        print(f"Time taken for response: {end_time - start_time:.2f} seconds\n")
-        print("Response from Agent Workflow:")
-        print(response)
+        print(f"\nTime taken for response: {end_time - start_time:.2f} seconds")
+
+        if response is not None:
+            print(f"\nAgent response:\n {response}")
+        else:
+            print("Failed to get a response from the Agent.")        
     
         context.append({
             "user_input": user_input,
