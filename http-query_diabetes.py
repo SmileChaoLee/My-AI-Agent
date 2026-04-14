@@ -5,9 +5,9 @@ import json
 
 # Define the base URL for the LLM API
 BASE_URL = "http://127.0.0.1:11434"  # Replace with the actual base URL if different
-# MODEL_NAME = "llama3.3:latest"
-# MODEL_NAME = "alibayram/medgemma:27b"
-MODEL_NAME = "MedAIBase/MedGemma1.5:4b"
+ROUTER_MODEL_NAME = "llama3.2:latest"
+# REQUEST_MODEL_NAME = "alibayram/medgemma:27b"
+REQUEST_MODEL_NAME = "MedAIBase/MedGemma1.5:4b"
 
 def format_context(context, max_length=6):
     """
@@ -61,7 +61,7 @@ async def query_llm(prompt, context=[]):
 
     category = None
     router_data = {
-        "model": MODEL_NAME,
+        "model": ROUTER_MODEL_NAME,
         "prompt": router_prompt,
         "max_tokens": 50,
         "temperature": 0.0,
@@ -82,17 +82,17 @@ async def query_llm(prompt, context=[]):
     if category and category == 'FEEDBACK':        
         if last_resp:
             if context:
-                context[-1]['feedback'] = prompt
+                context[-1]['feedback'] = prompt            
         else:
             print("\nDEBUG: No previous response to attach feedback to.")
-            return "Sorry, I couldn't find the previous response to attach your feedback to. Please try again."
+            # return "Sorry, I couldn't find the previous response to attach your feedback to. Please try again."
+            return None
     
     formatted_context = format_context(context)
-    # medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
-    medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question: {prompt}"
+    medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
     
     data = {
-        "model": MODEL_NAME,
+        "model": REQUEST_MODEL_NAME,
         "prompt": medical_prompt,
         "max_tokens": 500,  # Adjust the number of tokens as needed
         "temperature": 0.2,  # Adjust the temperature for randomness

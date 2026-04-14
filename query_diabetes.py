@@ -1,12 +1,11 @@
 import asyncio
-import requests
 import time
 import ollama
 import json
 
-# MODEL_NAME = "llama3.3:latest"
-# MODEL_NAME = "alibayram/medgemma:27b"
-MODEL_NAME = "MedAIBase/MedGemma1.5:4b"
+ROUTER_MODEL_NAME = "llama3.2:latest"
+# REQUEST_MODEL_NAME = "alibayram/medgemma:27b"
+REQUEST_MODEL_NAME = "MedAIBase/MedGemma1.5:4b"
 
 def format_context(context, max_length=6):
     """
@@ -41,7 +40,7 @@ async def query_llm(prompt, context=[]):
     """
 
     response = ollama.generate(
-        model=MODEL_NAME, 
+        model=ROUTER_MODEL_NAME, 
         prompt=router_prompt, 
         format='json'
     )
@@ -55,13 +54,14 @@ async def query_llm(prompt, context=[]):
                 context[-1]['feedback'] = prompt
         else:
             print("\nDEBUG: No previous response to attach feedback to.")
-            return "Sorry, I couldn't find the previous response to attach your feedback to. Please try again."
-            
+            # return "Sorry, I couldn't find the previous response to attach your feedback to. Please try again."
+            return None
+
     formatted_context = format_context(context)
-    # medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
-    medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question: {prompt}"
+    medical_prompt = f"You are a medical assistant specialized in diabetes. Answer this question:\n\n{prompt}\n\nContext:\n{formatted_context}"
+
     response = ollama.generate(
-        model=MODEL_NAME,
+        model=REQUEST_MODEL_NAME,
         prompt=medical_prompt,
         options={
             'temperature': 0.1,
