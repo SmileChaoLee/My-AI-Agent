@@ -12,11 +12,21 @@ GENERAL_MODEL = 'llama3.2:latest'
 
 last_model_used = [CODE_MODEL]
 
+def is_file_request_from_userinput(text: str) -> bool:
+    """
+    Return True if *text* contains a keyword that indicates the user is
+    asking to read or otherwise access a file.
+    """
+    if not isinstance(text, str):
+        return False
+    return is_file_request(text)
+
 FILE_REQUEST_PATTERNS = [
-    r'\bread file\b',
-    r'\bopen file\b',
-    r'\bload file\b',
+    r'\bread( the)? file\b',
+    r'\bopen( the)? file\b',
+    r'\bload( the)? file\b',
     r'\bread from (the )?file\b',
+    r'\bshow( me)?( the)? file\b',
     r'\bsend.*file\b',
     r'\battach file\b',
     r'\bfile contents\b'
@@ -24,11 +34,9 @@ FILE_REQUEST_PATTERNS = [
 
 FILE_PATH_PATTERN = r'[A-Za-z0-9_\-./\\]+\.[A-Za-z0-9]+'
 
-
 def is_file_request(text):
     text = text.lower()
     return any(re.search(pattern, text) for pattern in FILE_REQUEST_PATTERNS)
-
 
 def extract_file_path(text):
     # Try quoted file paths first
@@ -42,18 +50,19 @@ def extract_file_path(text):
             return path
     return None
 
-
 def read_file_contents(path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
         print(f"Error: file not found: {path}")
+        return None
     except PermissionError:
         print(f"Error: permission denied for file: {path}")
+        return None
     except Exception as exc:
         print(f"Error reading file {path}: {exc}")
-    return None
+        return None
 
 def format_context(context, max_length=6):
     """
@@ -71,7 +80,7 @@ def format_context(context, max_length=6):
 def agent_workflow(user_input, context=[]):
     # 1. THE ROUTER
     # We tell the router what the last response was so it can detect if the user is giving feedback
-    last_resp = context[-1].get('response', 'None') if context else 'None'
+    last_resp = context[-1].get('response', None) if context else None
     
     router_prompt = f"""
     You are a high-speed triage router for a medical AI agent. 
@@ -174,6 +183,7 @@ def main():
             text.append(line)        
 
         user_input = "\n".join(text)
+        print(f"DEBUG: user_input: {user_input}")
 
         if not text:
             print("Goodbye!")
@@ -181,6 +191,7 @@ def main():
 
         if is_file_request(user_input):
             file_path = extract_file_path(user_input)
+            print(f"DEBUG: Reading file: {file_path}")
             if not file_path:
                 file_path = input("Please enter the file path to read: ").strip()
 
