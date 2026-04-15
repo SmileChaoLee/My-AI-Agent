@@ -4,7 +4,7 @@ import os
 import re
 import time
 
-ROUTER_MODEL_NAME = 'llama3.2:latest'
+ROUTER_MODEL = 'llama3.2:latest'
 MEDICAL_MODEL = 'MedAIBase/MedGemma1.5:4b'
 CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'
 TECHNOLOGY_MODEL = 'qwen2.5-coder:7b'
@@ -100,7 +100,7 @@ def agent_workflow(user_input, context=[]):
     """
 
     response = ollama.generate(
-        model=ROUTER_MODEL_NAME, 
+        model=ROUTER_MODEL, 
         prompt=router_prompt, 
         format='json'
     )
