@@ -8,12 +8,34 @@ import threading
 try:
     import tkinter as tk
     from tkinter.scrolledtext import ScrolledText
-except ImportError:
+    from tkinter import filedialog
+except ImportError as exc:
     tk = None
     ScrolledText = None
+    filedialog = None
+    TKINTER_IMPORT_ERROR = exc
+else:
+    TKINTER_IMPORT_ERROR = None
 
 # GUI log widget reference; set in gui_main().
 gui_output_widget = None
+
+def prompt_tkinter_install_help():
+    if tk is not None:
+        return
+
+    print('\nTkinter is not available in this Python environment.')
+    print('The GUI requires tkinter to run. You can continue using the CLI mode.')
+    choice = input('Would you like installation instructions for tkinter? (y/n): ').strip().lower()
+    if choice.startswith('y'):
+        print('\nInstallation instructions for tkinter:')
+        print('- Ubuntu / Debian: sudo apt-get install python3-tk')
+        print('- Fedora / RHEL: sudo dnf install python3-tkinter')
+        print('- Arch Linux: sudo pacman -S tk')
+        print('- macOS: install Python from python.org with Tcl/Tk support, or use Homebrew with `brew install python-tk`')
+        print('- Windows: install the official Python from python.org and include Tcl/Tk support during setup')
+        print('\nAfter installation, rerun this program.')
+    print('Continuing in CLI mode.\n')
 
 try:
     from prompt_toolkit import PromptSession
@@ -154,7 +176,7 @@ def debug_log(message):
         print(message)
 
 
-def process_gui_request(user_input, context, request_parent, status_label, file_state):
+def process_gui_request(user_input, context, request_parent, status_label, file_state, history_canvas=None):
     if not user_input.strip():
         status_label.config(text='Please enter a request.')
         return
@@ -162,7 +184,8 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
     request_frame = tk.Frame(request_parent, bd=1, relief='solid', padx=4, pady=4)
     request_frame.pack(fill='x', padx=8, pady=4, expand=False)
 
-    request_header = tk.Label(request_frame, text=f"Request: {user_input}", anchor='w', font=('TkDefaultFont', 10, 'bold'))
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', 10, 'bold'))
     request_header.pack(fill='x')
 
     content_container = tk.Frame(request_frame)
@@ -176,8 +199,12 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
         request_output_widget.insert('end', text + '\n')
         request_output_widget.see('end')
         request_output_widget.configure(state='disabled')
+        if history_canvas is not None:
+            history_canvas.after(50, lambda: history_canvas.yview_moveto(1.0))
 
     append_response_text(f">>> {user_input}")
+    if history_canvas is not None:
+        history_canvas.after(100, lambda: history_canvas.yview_moveto(1.0))
     status_label.config(text='Processing...')
 
     global gui_output_widget
@@ -233,6 +260,7 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
 def gui_main():
     if tk is None or ScrolledText is None:
         print('tkinter is not available; falling back to CLI.')
+        prompt_tkinter_install_help()
         main()
         return
 
@@ -254,6 +282,9 @@ def gui_main():
 
     button_frame = tk.Frame(root)
     button_frame.pack(fill='x', padx=8, pady=4)
+
+    shortcuts_label = tk.Label(root, text='Shortcuts: Ctrl+Enter = Submit, Ctrl+L = Clear, Ctrl+Q = Exit', anchor='w', fg='gray30', font=('TkDefaultFont', 9))
+    shortcuts_label.pack(fill='x', padx=8, pady=(0, 4))
 
     history_frame_container = tk.Frame(root)
     history_frame_container.pack(fill='both', padx=8, pady=(0, 8), expand=True)
@@ -288,11 +319,24 @@ def gui_main():
         output_label = tk.Label(history_frame, text='Output:')
         output_label.pack(anchor='w')
 
-    def on_submit():
+    def browse_file():
+        if filedialog is None:
+            return
+        path = filedialog.askopenfilename(initialdir=os.getcwd(), title='Select a file')
+        if path:
+            if input_widget.get('1.0', 'end').strip():
+                input_widget.insert('end', ' ' + path)
+            else:
+                input_widget.insert('end', path)
+
+    def on_submit(event=None):
         text = input_widget.get('1.0', 'end').strip()
         if text:
-            process_gui_request(text, gui_main.context, history_frame, status_label, file_state)
+            process_gui_request(text, gui_main.context, history_frame, status_label, file_state, history_canvas)
             input_widget.delete('1.0', 'end')
+
+    def on_clear(event=None):
+        clear_output()
 
     status_label = tk.Label(root, text='Ready', anchor='w')
     status_label.pack(fill='x', padx=8, pady=(0, 8))
@@ -303,8 +347,16 @@ def gui_main():
     submit_button = tk.Button(button_frame, text='Submit', command=on_submit)
     submit_button.pack(side='left')
 
+    browse_button = tk.Button(button_frame, text='Browse File', command=browse_file)
+    browse_button.pack(side='left', padx=(8, 0))
+
     clear_button = tk.Button(button_frame, text='Clear Output', command=clear_output)
     clear_button.pack(side='left', padx=(8, 0))
+
+    root.bind('<Control-Return>', on_submit)
+    root.bind('<Control-l>', on_clear)
+    root.bind('<Control-L>', on_clear)
+    root.bind('<Control-q>', lambda event: root.destroy())
 
     exit_button = tk.Button(button_frame, text='Exit', command=root.destroy)
     exit_button.pack(side='left', padx=(8, 0))
