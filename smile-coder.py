@@ -1,3 +1,5 @@
+from multiprocessing import context
+
 import ollama
 import json
 import os
@@ -44,8 +46,6 @@ except ImportError:
     PromptSession = None
     KeyBindings = None
 
-# ROUTER_MODEL = 'llama3.2:latest'
-ROUTER_MODEL = 'qwen2.5-coder:1.5b'
 # CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'
 CODE_MODEL = 'qwen2.5-coder:7b'
 
@@ -117,7 +117,17 @@ def read_file_contents(path):
     except Exception as exc:
         print(f"Error reading file {path}: {exc}")
         return None
-    
+
+
+def format_user_input_for_read(user_input, file_path=None, file_contents=None):
+    if file_path and file_contents:
+        return (
+            f"File path: \n{file_path}"
+            f"\n\nFile contents:\n{file_contents}"
+            f"\n\nUser question:\n{user_input}"
+        )
+    else:
+        return user_input
 
 def print_boxed_text(text):
     lines = text.splitlines() or ['']
@@ -177,6 +187,7 @@ def debug_log(message):
 
 
 def process_gui_request(user_input, context, request_parent, status_label, file_state, history_canvas=None):
+    debug_log(f"DEBUG.process_gui_request: user_input: {user_input}")
     if not user_input.strip():
         status_label.config(text='Please enter a request.')
         return
@@ -205,34 +216,37 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
     append_response_text(f">>> {user_input}")
     if history_canvas is not None:
         history_canvas.after(100, lambda: history_canvas.yview_moveto(1.0))
-    status_label.config(text='Processing...')
+    status_label.config(text='Processing...', fg='red', font=('TkDefaultFont', 10, 'bold'))
 
     global gui_output_widget
     gui_output_widget = request_output_widget
 
     def worker():
-        try:
-            local_input = user_input
+        try:        
+            local_input = user_input          
             file_path = extract_file_path(local_input)
+            debug_log(f"DEBUG.process_gui_request: file_path: {file_path}")
             if not file_path:
                 file_path = file_state.get('last_file_path')
                 if file_path and is_display_request(local_input):
-                    debug_log(f"DEBUG: Using last file path: {file_path}")
+                    debug_log(f"DEBUG.process_gui_request: Using last file path: {file_path}")
 
             should_display = False
             file_contents = None
             if file_path and (is_file_request(local_input) or is_display_request(local_input)):
-                debug_log(f"DEBUG: last file path before update: {file_state.get('last_file_path')}")
-                debug_log(f"DEBUG: Reading file: {file_path}")
+                debug_log(f"DEBUG.process_gui_request: last file path before update: {file_state.get('last_file_path')}")
+                debug_log(f"DEBUG.process_gui_request: Reading file: {file_path}")
                 file_state['last_file_path'] = file_path
                 file_contents = read_file_contents(file_path)
                 if file_contents is None:
                     request_output_widget.after(0, lambda: append_response_text(f'Could not read the requested file: {file_path}'))
                     return
-                should_display = is_display_request(local_input)
-                local_input = (
-                    f"Read the contents of the file at {file_path} and send it to the LLM:\n\n"
-                    f"File contents:\n{file_contents}"
+                debug_log(f"DEBUG.process_gui_request: file_contents is not None")                
+                should_display = is_display_request(local_input)               
+                local_input = format_user_input_for_read(
+                    user_input,
+                    file_path,
+                    file_contents
                 )
             elif is_display_request(local_input):
                 request_output_widget.after(0, lambda: append_response_text('No file path detected in your input. Please include one or open a file first.'))
@@ -240,9 +254,15 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
 
             if should_display and file_contents is not None:
                 request_frame.after(0, lambda: create_file_content_frame(content_container, file_path, file_contents))
-                request_output_widget.after(0, lambda: append_response_text(f'Displaying file content for {file_path}'))
+                request_output_widget.after(0, lambda: append_response_text(f'Displaying file content for {file_path}'))           
 
-            response = agent_workflow(local_input, context)
+            start_time = time.time()               
+            
+            response = agent_workflow(local_input, context)        
+            
+            end_time = time.time()    
+            debug_log(f"DEBUG.process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
+        
             context.append({
                 'user_input': user_input,
                 'response': response,
@@ -252,7 +272,7 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
         except Exception as exc:
             request_output_widget.after(0, lambda: append_response_text(f'Error: {exc}'))
         finally:
-            status_label.after(0, lambda: status_label.config(text='Ready'))
+            status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', 10, 'bold')))
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -338,7 +358,8 @@ def gui_main():
     def on_clear(event=None):
         clear_output()
 
-    status_label = tk.Label(root, text='Ready', anchor='w')
+    default_status_font = ('TkDefaultFont', 10, 'bold')
+    status_label = tk.Label(root, text='Ready', anchor='w', fg='green', font=default_status_font)
     status_label.pack(fill='x', padx=8, pady=(0, 8))
 
     global gui_output_widget
@@ -418,47 +439,21 @@ def format_context(context, max_length=6):
 
 
 def agent_workflow(user_input, context=[]):
-    # 1. THE ROUTER
-    # We tell the router what the last response was so it can detect if the user is giving feedback
-    last_resp = context[-1].get('response', None) if context else None
-    
-    router_prompt = f"""
-    You are a high-speed triage router for a coder AI agent. 
-    Analyze the user's input and the previous interaction to determine the intent.
+    # debug_log(f"DEBUG.agent_workflow: user_input: \n{user_input}")
+    if not user_input.strip():
+        debug_log(f"DEBUG.agent_workflow: No user input provided.")
+    last_resp = context[-1].get('response', None) if context else None    
+    if last_resp and context:
+        context[-1]['feedback'] = user_input   
 
-    Categories:
-    - "CODE": Specific programming tasks, debugging, or scripts.    
-    - "FEEDBACK": The user is correcting the previous answer, saying thank you, or providing a critique.    
-
-    Previous Assistant Response: {last_resp}
-    User input: {user_input}
-    
-    Response format: {{"category": "LABEL"}}
-    """
-
-    response = ollama.generate(
-        model=ROUTER_MODEL, 
-        prompt=router_prompt, 
-        format='json'
-    )
-
-    result = json.loads(response['response'])
-    category = result.get("category", "GENERAL")
-    debug_log(f"\nDEBUG: Router categorized the input as: {category}")
-
-    # 2. THE HAND-OFF LOGIC
-    if category == 'FEEDBACK':        
-        if last_resp:
-            if context:
-                context[-1]['feedback'] = user_input
-        else:
-            return None
-    
-    formatted_context = format_context(context)
-    
-    debug_log(f"DEBUG: Routed to Coding Expert (Qwen 2.5) | Category: {category}\n")
+    formatted_context = format_context(context)    
     code_prompt = f"You are a coding expert. Answer this question:\n\n{user_input}\n\nContext:\n{formatted_context}"
-    code_response = ollama.generate(model=CODE_MODEL, prompt=code_prompt, options={'temperature': 0.0, 'num_ctx': 8192})
+    # code_prompt = f"You are a coding expert. Answer this question: {user_input}"
+    code_response = ollama.generate(
+        model=CODE_MODEL,
+        prompt=code_prompt,
+        options={'temperature': 0.0, 'num_ctx': 8192}
+    )
     return code_response['response']
 
 
@@ -504,16 +499,21 @@ def main():
                 if is_display_request(user_input):
                     print(f"\nContents of {file_path}:")
                     print_boxed_text(file_contents)
-                user_input = (
-                    f"Read the contents of the file at {file_path} and send it to the LLM:\n\n"
-                    f"File contents:\n{file_contents}"
+                #user_input = (
+                #    f"Read the contents of the file at {file_path} and send it to the LLM:\n\n"
+                #    f"File contents:\n{file_contents}"
+                #)
+                user_input = format_user_input_for_read(
+                    user_input,
+                    file_path,
+                    file_contents
                 )
             else:
                 print("Could not read the requested file. Try again.")
                 continue
         
         print("\nProcessing your request, please wait...")        
-        start_time = time.time()    
+        start_time = time.time()       
         
         response = agent_workflow(user_input, context)
         
