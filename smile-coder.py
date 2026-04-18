@@ -19,6 +19,13 @@ except ImportError as exc:
 else:
     TKINTER_IMPORT_ERROR = None
 
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.key_binding import KeyBindings
+except ImportError:
+    PromptSession = None
+    KeyBindings = None
+
 # GUI log widget reference; set in gui_main().
 gui_output_widget = None
 
@@ -39,12 +46,6 @@ def prompt_tkinter_install_help():
         print('\nAfter installation, rerun this program.')
     print('Continuing in CLI mode.\n')
 
-try:
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.key_binding import KeyBindings
-except ImportError:
-    PromptSession = None
-    KeyBindings = None
 
 # CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'
 CODE_MODEL = 'qwen2.5-coder:7b'
@@ -185,7 +186,13 @@ def debug_log(message):
         print(message)
 
 
-def process_gui_request(user_input, context, request_parent, status_label, file_state, history_canvas=None):
+def cancel_request(cancel_event, status_label, cancel_button):
+    cancel_event.set()
+    status_label.config(text='Cancelled', fg='orange', font=('TkDefaultFont', 10, 'bold'))
+    cancel_button.pack_forget()
+
+
+def process_gui_request(user_input, context, request_parent, status_label, cancel_button, cancel_event, file_state, history_canvas=None):
     debug_log(f"DEBUG.process_gui_request: user_input: {user_input}")
     if not user_input.strip():
         status_label.config(text='Please enter a request.')
@@ -216,6 +223,9 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
     if history_canvas is not None:
         history_canvas.after(100, lambda: history_canvas.yview_moveto(1.0))
     status_label.config(text='Processing...', fg='red', font=('TkDefaultFont', 10, 'bold'))
+    cancel_event.clear()
+    cancel_button.pack(side='right')
+    cancel_button.config(command=lambda: cancel_request(cancel_event, status_label, cancel_button))
 
     global gui_output_widget
     gui_output_widget = request_output_widget
@@ -257,21 +267,25 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
 
             start_time = time.time()               
             
-            response = agent_workflow(local_input, context)        
+            response = agent_workflow(local_input, context, cancel_event)        
             
             end_time = time.time()    
             debug_log(f"DEBUG.process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
-            context.append({
-                'user_input': user_input,
-                'response': response,
-                'feedback': ''
-            })
-            request_output_widget.after(0, lambda: append_response_text(f'Agent response:\n{response}'))
+            if not cancel_event.is_set():
+                context.append({
+                    'user_input': user_input,
+                    'response': response,
+                    'feedback': ''
+                })
+                request_output_widget.after(0, lambda: append_response_text(f'Agent response:\n{response}'))
         except Exception as exc:
-            request_output_widget.after(0, lambda: append_response_text(f'Error: {exc}'))
+            if not cancel_event.is_set():
+                request_output_widget.after(0, lambda: append_response_text(f'Error: {exc}'))
         finally:
-            status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', 10, 'bold')))
+            if not cancel_event.is_set():
+                status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', 10, 'bold')))
+            cancel_button.after(0, lambda: cancel_button.pack_forget())
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -355,15 +369,28 @@ def gui_main():
     def on_submit(event=None):
         text = input_widget.get('1.0', 'end').strip()
         if text:
-            process_gui_request(text, gui_main.context, history_frame, status_label, file_state, history_canvas)
+            process_gui_request(text, gui_main.context, history_frame, status_label, cancel_button, cancel_event, file_state, history_canvas)
             input_widget.delete('1.0', 'end')
 
     def on_clear(event=None):
         clear_output()
 
     default_status_font = ('TkDefaultFont', 10, 'bold')
-    status_label = tk.Label(root, text='Ready', anchor='w', fg='green', font=default_status_font)
-    status_label.pack(fill='x', padx=8, pady=(0, 8))
+    status_frame = tk.Frame(root)
+    status_frame.pack(fill='x', padx=8, pady=(0, 8))
+
+    # Frame to hold status text and cancel button together
+    processing_frame = tk.Frame(status_frame)
+    processing_frame.pack(side='left')
+
+    status_label = tk.Label(processing_frame, text='Ready', fg='green', font=default_status_font)
+    status_label.pack(side='left')
+
+    cancel_button = tk.Button(processing_frame, text='Cancel', command=lambda: None, font=('TkDefaultFont', 10, 'bold'))
+    cancel_button.pack(side='left', padx=(8, 0))
+    cancel_button.pack_forget()  # Hide initially
+
+    cancel_event = threading.Event()
 
     global gui_output_widget
     gui_output_widget = None
@@ -441,7 +468,7 @@ def format_context(context, max_length=6):
     return "\n".join(formatted_context)
 
 
-def agent_workflow(user_input, context=[]):
+def agent_workflow(user_input, context=[], cancel_event=None):
     # debug_log(f"DEBUG.agent_workflow: user_input: \n{user_input}")
     if not user_input.strip():
         debug_log(f"DEBUG.agent_workflow: No user input provided.")
@@ -452,12 +479,21 @@ def agent_workflow(user_input, context=[]):
     formatted_context = format_context(context)    
     code_prompt = f"You are a coding expert. Answer this question:\n\n{user_input}\n\nContext:\n{formatted_context}"
     # code_prompt = f"You are a coding expert. Answer this question: {user_input}"
-    code_response = ollama.generate(
-        model=CODE_MODEL,
-        prompt=code_prompt,
-        options={'temperature': 0.0, 'num_ctx': 8192}
-    )
-    return code_response['response']
+    response = ''
+    try:
+        for chunk in ollama.generate(
+            model=CODE_MODEL,
+            prompt=code_prompt,
+            options={'temperature': 0.0, 'num_ctx': 8192},
+            stream=True
+        ):
+            if cancel_event and cancel_event.is_set():
+                response = ' [CANCELLED]'
+                break
+            response += chunk['response']
+    except Exception as e:
+        response = f'Error during generation: {e}'
+    return response
 
 
 def main():
