@@ -86,14 +86,13 @@ def extract_file_path(text):
         return quoted.group(1) or quoted.group(2)
 
     candidate_paths = re.findall(FILE_PATH_PATTERN, text)
-    for path in candidate_paths:
-        if os.path.exists(path):
-            return path
+    if candidate_paths:
+        return candidate_paths[0]
     return None
 
 
 DISPLAY_FILE_PATTERNS = [
-    r'\b(show|display|print)( me)?( the)?( .+)?( file| content| contents)\b',
+    r'\b(show|display|print)( me)?( the)?( .+)?\b',
 ]
 
 
@@ -233,7 +232,7 @@ def process_gui_request(user_input, context, request_parent, status_label, file_
 
             should_display = False
             file_contents = None
-            if file_path and (is_file_request(local_input) or is_display_request(local_input)):
+            if file_path:
                 debug_log(f"DEBUG.process_gui_request: last file path before update: {file_state.get('last_file_path')}")
                 debug_log(f"DEBUG.process_gui_request: Reading file: {file_path}")
                 file_state['last_file_path'] = file_path
@@ -294,20 +293,24 @@ def gui_main():
     root.title('Smile Coder GUI')
     root.geometry('1000x800')
 
-    label = tk.Label(root, text='Enter your request below and click Submit:')
-    label.pack(anchor='w', padx=8, pady=(8, 0))
+    label = tk.Label(root, text='Enter your request and click Submit:')
 
     input_widget = ScrolledText(root, wrap='word', width=110, height=8)
-    input_widget.pack(fill='both', padx=8, pady=4, expand=False)
 
     button_frame = tk.Frame(root)
-    button_frame.pack(fill='x', padx=8, pady=4)
 
     shortcuts_label = tk.Label(root, text='Shortcuts: Ctrl+Enter = Submit, Ctrl+L = Clear, Ctrl+Q = Exit', anchor='w', fg='gray30', font=('TkDefaultFont', 9))
-    shortcuts_label.pack(fill='x', padx=8, pady=(0, 4))
 
     history_frame_container = tk.Frame(root)
     history_frame_container.pack(fill='both', padx=8, pady=(0, 8), expand=True)
+
+    label.pack(anchor='w', padx=8, pady=(8, 0))
+
+    input_widget.pack(fill='both', padx=8, pady=4, expand=False)
+
+    shortcuts_label.pack(fill='x', padx=8, pady=(0, 4))
+
+    button_frame.pack(fill='x', padx=8, pady=4)
 
     history_canvas = tk.Canvas(history_frame_container, bd=0, highlightthickness=0)
     history_canvas.pack(side='left', fill='both', expand=True)
@@ -482,14 +485,9 @@ def main():
             print("Goodbye!")
             break
 
-        if is_file_request(user_input):
-            file_path = extract_file_path(user_input)            
-            if not file_path:
-                file_path = m_file_path
-            if not file_path:
-                print("No file path detected in your input. Please provide a valid file path.")
-                continue            
-            else: m_file_path = file_path
+        file_path = extract_file_path(user_input)
+        if file_path:
+            m_file_path = file_path
 
             print(f"\nDEBUG: m_file_path: {m_file_path}")
             print(f"DEBUG: Reading file: {file_path}")
