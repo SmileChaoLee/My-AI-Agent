@@ -1,7 +1,4 @@
-from multiprocessing import context
-
 import ollama
-import json
 import os
 import re
 import time
@@ -140,8 +137,12 @@ def print_boxed_text(text):
 
 
 def create_file_content_frame(parent, path, content):
-    frame = tk.Frame(parent, bd=1, relief='solid')
-    label_widget = tk.Label(frame, text=f'File content: {os.path.basename(path)}', anchor='w', font=('TkDefaultFont', 10, 'bold'))
+    import platform
+    std_arrow = "arrow" if platform.system() == "Windows" else "left_ptr"
+
+    frame = tk.Frame(parent, bd=1, relief='solid', cursor=std_arrow)
+    label_widget = tk.Label(frame, text=f'File content: {os.path.basename(path)}',
+                            anchor='w', font=('TkDefaultFont', 10, 'bold'), cursor=std_arrow)
     label_widget.pack(fill='x', padx=4, pady=(4, 0))
 
     toolbar = tk.Frame(frame)
@@ -164,7 +165,7 @@ def create_file_content_frame(parent, path, content):
     text_widget.insert('1.0', content)
     text_widget.configure(state='disabled')
 
-    frame.pack(fill='both', padx=8, pady=(0, 8), expand=False)
+    #frame.pack(fill='both', padx=8, pady=(0, 8), expand=False)
     return frame
 
 
@@ -205,11 +206,28 @@ def process_gui_request(user_input, context, request_parent, status_label, cance
     request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', 10, 'bold'))
     request_header.pack(fill='x')
 
-    content_container = tk.Frame(request_frame)
-    content_container.pack(fill='both', pady=(4, 4), expand=False)
+    #content_container = tk.Frame(request_frame)
+    #content_container.pack(fill='both', pady=(4, 4), expand=False)
+    # REPLACE content_container with a PanedWindow
+    #content_pane = tk.PanedWindow(request_frame, orient=tk.VERTICAL, sashrelief='raised', showhandle=True)
+    #content_pane.pack(fill='both', expand=True, pady=4)
 
-    request_output_widget = ScrolledText(request_frame, wrap='word', width=110, height=8, state='disabled')
-    request_output_widget.pack(fill='both', pady=(4, 8), expand=False)
+    content_pane = tk.PanedWindow(
+        request_frame, 
+        orient=tk.VERTICAL, 
+        sashrelief='raised',
+        sashwidth=6,
+        showhandle=True,
+        cursor="sb_v_double_arrow",     # Standard pointer on hover
+        sashcursor="sb_v_double_arrow"  # Standard pointer during drag
+    )
+    content_pane.pack(fill='both', expand=True, pady=4)
+
+    #request_output_widget = ScrolledText(request_frame, wrap='word', width=110, height=8, state='disabled')
+    #request_output_widget.pack(fill='both', pady=(4, 8), expand=False)
+    # Initialize output widget and add it as the second pane
+    request_output_widget = ScrolledText(content_pane, wrap='word', width=110, height=8, state='disabled')
+    content_pane.add(request_output_widget, minsize=100, stretch="always") # Added as a resizable pane
 
     def append_response_text(text):
         request_output_widget.configure(state='normal')
@@ -262,8 +280,11 @@ def process_gui_request(user_input, context, request_parent, status_label, cance
                 return
 
             if should_display and file_contents is not None:
-                request_frame.after(0, lambda: create_file_content_frame(content_container, file_path, file_contents))
-                request_output_widget.after(0, lambda: append_response_text(f'Displaying file content for {file_path}'))           
+                #request_frame.after(0, lambda: create_file_content_frame(content_container, file_path, file_contents))
+                #request_output_widget.after(0, lambda: append_response_text(f'Displaying file content for {file_path}'))
+                # Instead of request_frame.after(...)
+                file_frame = create_file_content_frame(content_pane, file_path, file_contents)
+                content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane         
 
             start_time = time.time()               
             
@@ -450,15 +471,15 @@ def get_multiline_input(prompt_text='-> '):
         return ''
 
 
-def add_to_context(context, user_input, response, max_history=10):
+def add_to_context(context_list, user_input, response, max_history=10):
     """Appends the latest interaction to the history list."""
-    context.append({
+    context_list.append({
         'user_input': user_input,
         'response': response,
     })
-    if len(context) > max_history:
-        # context.pop(0)  # Remove the oldest entry to maintain the max history size  
-        del context[0]  # Alternative way to remove the oldest entry
+    if len(context_list) > max_history:
+        # context_list.pop(0)  # Remove the oldest entry to maintain the max history size  
+        del context_list[0]  # Alternative way to remove the oldest entry
 
 
 def agent_workflow(user_input, context=[], cancel_event=None):
