@@ -272,12 +272,8 @@ def process_gui_request(user_input, context, request_parent, status_label, cance
             end_time = time.time()    
             debug_log(f"DEBUG.process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
-            if not cancel_event.is_set():
-                context.append({
-                    'user_input': user_input,
-                    'response': response,
-                    'feedback': ''
-                })
+            if not cancel_event.is_set():              
+                add_to_context(context, user_input, response)            
                 request_output_widget.after(0, lambda: append_response_text(f'Agent response:\n{response}'))
         except Exception as exc:
             if not cancel_event.is_set():
@@ -454,45 +450,54 @@ def get_multiline_input(prompt_text='-> '):
         return ''
 
 
-def format_context(context, max_length=6):
-    """
-    Format and limit the context to the last `max_length` interactions.
-    """
-    formatted_context = []
-    for interaction in context[-max_length:]:
-        user_input = interaction.get("user_input", "")
-        response = interaction.get("response", "")
-        feedback = interaction.get("feedback", "")
-        entry = f"User: {user_input}\nAssistant: {response}\nFeedback: {feedback}"
-        formatted_context.append(entry)
-    return "\n".join(formatted_context)
+def add_to_context(context, user_input, response, max_history=10):
+    """Appends the latest interaction to the history list."""
+    context.append({
+        'user_input': user_input,
+        'response': response,
+    })
+    if len(context) > max_history:
+        # context.pop(0)  # Remove the oldest entry to maintain the max history size  
+        del context[0]  # Alternative way to remove the oldest entry
 
 
 def agent_workflow(user_input, context=[], cancel_event=None):
-    # debug_log(f"DEBUG.agent_workflow: user_input: \n{user_input}")
     if not user_input.strip():
         debug_log(f"DEBUG.agent_workflow: No user input provided.")
-    last_resp = context[-1].get('response', None) if context else None    
-    if last_resp and context:
-        context[-1]['feedback'] = user_input   
+    
+    # 1. Build the messages list
+    # We use 'system' for the persona and 'user' for the prompt
+    messages = [
+        {'role': 'system', 'content': 'You are a coding expert.'},
+    ]
 
-    formatted_context = format_context(context)    
-    code_prompt = f"You are a coding expert. Answer this question:\n\n{user_input}\n\nContext:\n{formatted_context}"
-    # code_prompt = f"You are a coding expert. Answer this question: {user_input}"
+    # 2. Add context to the conversation (if you want the model to see history)
+    for entry in context:
+        messages.append({'role': 'user', 'content': entry.get('user_input', '')})
+        messages.append({'role': 'assistant', 'content': entry.get('response', '')})
+
+    # 3. Add the current user input
+    messages.append({'role': 'user', 'content': user_input})
+
     response = ''
     try:
-        for chunk in ollama.generate(
+        # Use ollama.chat instead of generate
+        for chunk in ollama.chat(
             model=CODE_MODEL,
-            prompt=code_prompt,
+            messages=messages,
             options={'temperature': 0.0, 'num_ctx': 8192},
             stream=True
         ):
             if cancel_event and cancel_event.is_set():
-                response = ' [CANCELLED]'
+                response += ' [CANCELLED]'
                 break
-            response += chunk['response']
+            
+            # In .chat(), the text is inside chunk['message']['content']
+            response += chunk['message']['content']
+            
     except Exception as e:
         response = f'Error during generation: {e}'
+    
     return response
 
 
@@ -532,11 +537,7 @@ def main():
             if file_contents is not None:
                 if is_display_request(user_input):
                     print(f"\nContents of {file_path}:")
-                    print_boxed_text(file_contents)
-                #user_input = (
-                #    f"Read the contents of the file at {file_path} and send it to the LLM:\n\n"
-                #    f"File contents:\n{file_contents}"
-                #)
+                    print_boxed_text(file_contents)            
                 user_input = format_user_input_for_read(
                     user_input,
                     file_path,
@@ -559,11 +560,7 @@ def main():
         else:
             print("Failed to get a response from the Agent.")        
     
-        context.append({
-            "user_input": user_input,
-            "response": response,
-            "feedback": "" # Left empty; the Router will detect feedback in the next turn
-        })
+        add_to_context(context, user_input, response)
             
 if __name__ == "__main__":
     try:
