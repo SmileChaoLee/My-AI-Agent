@@ -1,3 +1,6 @@
+from io import StringIO
+import sys
+
 import ollama
 import os
 import re
@@ -23,6 +26,36 @@ except ImportError:
     PromptSession = None
     KeyBindings = None
 
+# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'
+CODE_MODEL = 'qwen2.5-coder:7b'    
+
+# --- TOOLS ---
+def python_repl(code: str) -> str:
+    """Cleans markdown and executes Python code."""
+    # Remove markdown backticks and language tags
+    clean_code = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)
+    
+    old_stdout = sys.stdout
+    redirected_output = sys.stdout = StringIO()
+    try:
+        # Execute in globals to maintain state across turns
+        exec(clean_code, globals())
+        return redirected_output.getvalue() or "Executed successfully (no output)."
+    except Exception as e:
+        return f"Error: {str(e)}"
+    finally:
+        sys.stdout = old_stdout    
+
+def read_file(path_input: str) -> str:
+    """Reads a file using absolute or relative paths."""
+    # Strip quotes/backticks the LLM might add
+    path = path_input.strip().strip('`').strip("'").strip('"')    
+    # Resolve path
+    target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
+    return read_file_contents(target_path)
+
+TOOLS = {"python_repl": python_repl, "read_file": read_file}    
+
 # GUI log widget reference; set in gui_main().
 gui_output_widget = None
 
@@ -43,9 +76,6 @@ def prompt_tkinter_install_help():
         print('\nAfter installation, rerun this program.')
     print('Continuing in CLI mode.\n')
 
-
-# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'
-CODE_MODEL = 'qwen2.5-coder:7b'
 
 def is_file_request_from_userinput(text: str) -> bool:
     """
@@ -482,14 +512,27 @@ def add_to_context(context_list, user_input, response, max_history=10):
         del context_list[0]  # Alternative way to remove the oldest entry
 
 
+# --- AGENT ENGINE ---
 def agent_workflow(user_input, context=[], cancel_event=None):
     if not user_input.strip():
         debug_log(f"DEBUG.agent_workflow: No user input provided.")
     
     # 1. Build the messages list
-    # We use 'system' for the persona and 'user' for the prompt
+    # Setup the ReAct system prompt
     messages = [
-        {'role': 'system', 'content': 'You are a coding expert.'},
+        {'role': 'system', 'content': (
+            "You are a coding and debugging expert using the ReAct pattern. "
+            "Solve problems by interleaving Thought, Action, and Observation. "
+            "Available Tools: \n"
+            "- read_file: Read content of a file. Input: filename string only.\n"
+            "- python_repl: Execute Python code. Input: pure python code.\n\n"
+            "Format: \n"
+            "Thought: [your reasoning]\n"
+            "Action: [tool_name]: [input]\n"
+            "Observation: [result from tool]\n"
+            "... (repeat until solved)\n"
+            "Answer: [your final conclusion]"
+        )},
     ]
 
     # 2. Add context to the conversation (if you want the model to see history)
@@ -499,27 +542,54 @@ def agent_workflow(user_input, context=[], cancel_event=None):
 
     # 3. Add the current user input
     messages.append({'role': 'user', 'content': user_input})
-
-    response = ''
-    try:
-        # Use ollama.chat instead of generate
-        for chunk in ollama.chat(
-            model=CODE_MODEL,
-            messages=messages,
-            options={'temperature': 0.0, 'num_ctx': 8192},
-            stream=True
-        ):
-            if cancel_event and cancel_event.is_set():
-                response += ' [CANCELLED]'
-                break
-            
-            # In .chat(), the text is inside chunk['message']['content']
-            response += chunk['message']['content']
-            
-    except Exception as e:
-        response = f'Error during generation: {e}'
     
-    return response
+    full_agent_log = ""    
+    # 4. ReAct Loop (Limit to 5 turns to prevent infinite loops)
+    for _ in range(5):
+        if cancel_event and cancel_event.is_set():
+            break
+
+        response = ''
+        try:
+            # Use ollama.chat instead of generate
+            for chunk in ollama.chat(
+                model=CODE_MODEL,
+                messages=messages,
+                options={'temperature': 0.0, 'num_ctx': 8192},
+                stream=True
+            ):
+                if cancel_event and cancel_event.is_set():
+                    response += '\n[CANCELLED]'
+                    break
+                # In .chat(), the text is inside chunk['message']['content']
+                text = chunk['message']['content']
+                response += text
+
+            messages.append({'role': 'assistant', 'content': response})
+            full_agent_log += f"\n{response}\n"    
+            
+            # Check if we are done
+            if "Answer:" in response:
+                break   # exit the loop ( for _ in range(5) )                            
+            
+            # Tool Execution Logic
+            action_match = re.search(r"Action: (\w+): (.*)", response, re.DOTALL)
+            if action_match:
+                tool_name, tool_input = action_match.groups()
+                # Use your existing TOOLS dictionary
+                observation = TOOLS.get(tool_name, lambda x: "Tool not found")(tool_input)                
+                obs_text = f"Observation: {observation}"
+                full_agent_log += f"\n{obs_text}\n"
+                messages.append({'role': 'user', 'content': obs_text})
+            else:
+                # If the model didn't provide an Action or Answer, stop or prompt it
+                break   # exit the loop ( for _ in range(5) )
+
+        except Exception as e:
+            response += f'Error: {e}'
+            full_agent_log += f"\n{response}\n"
+        
+    return full_agent_log
 
 
 def main():
