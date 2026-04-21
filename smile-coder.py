@@ -30,12 +30,34 @@ except ImportError:
 # CODE_MODEL = 'gemma4:31b' # not works on calling tools
 # CODE_MODEL = 'qwen2.5-coder:7b' # not works on calling tools
 # CODE_MODEL = 'llama3.3:latest'  # not works on calling tools
-# CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
-CODE_MODEL = 'gemma4:26b' # works on calling tools
+CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
+# CODE_MODEL = 'gemma4:26b' # works on calling tools
+
+
+def sandbox_exec(code: str) -> str:
+    """
+    Execute *code* in a fresh global namespace.
+    Returns the printed output or an error string.
+    """
+    clean = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)
+    old_stdout = sys.stdout
+    sys.stdout = StringIO()
+    local_vars = {} 
+    try:
+        exec(clean, local_vars)
+        return sys.stdout.getvalue() or "Executed successfully (no output)."
+    except Exception as e:
+        return f"Error: {e}"
+    finally:
+        sys.stdout = old_stdout
+
 
 # --- TOOLS ---
 def python_repl(code: str) -> str:
-    """Cleans markdown and executes Python code."""
+    """
+    Cleans markdown and executes Python code.
+    This function might modify the original code.
+    """
     # Remove markdown backticks and language tags
     clean_code = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)    
     old_stdout = sys.stdout
@@ -58,7 +80,7 @@ def read_file(path_input: str) -> str:
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
     return read_file_contents(target_path)    
 
-AVAILABLE_TOOLS = {"python_repl": python_repl, "read_file": read_file}
+AVAILABLE_TOOLS = {"python_repl": python_repl, "sandbox_exec": sandbox_exec, "read_file": read_file}
 
 # GUI log widget reference; set in gui_main().
 gui_output_widget = None
@@ -530,7 +552,7 @@ def agent_workflow(user_input, context=[], cancel_event=None):
             "Solve problems by interleaving Thought, Action, and Observation. "
             "Available Tools: \n"
             "- read_file: Read content of a file. Input: filename string only.\n"
-            "- python_repl: Execute Python code. Input: pure python code.\n\n"
+            "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"
             "Format: \n"
             "Thought: [your reasoning]\n"
             "Action: [tool_name]: [input]\n"
@@ -568,7 +590,7 @@ def agent_workflow(user_input, context=[], cancel_event=None):
                     'num_ctx': 8192,
                     'stop': ["Observation:", "Observation"] # Force the model to stop here
                 },
-                tools=[read_file, python_repl], # native tool support in .chat() with function calling                
+                tools=[read_file, sandbox_exec], # native tool support in .chat() with function calling                
             )
             if cancel_event and cancel_event.is_set():
                 full_agent_log += '\n[CANCELLED]'
