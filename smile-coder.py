@@ -251,6 +251,8 @@ def process_gui_request(user_input, context, request_parent, status_label,
     request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', 10, 'bold'))
     request_header.pack(fill='x')
 
+    # The following is used anymore
+    """
     content_pane = tk.PanedWindow(
         request_frame, 
         orient=tk.VERTICAL, 
@@ -261,6 +263,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
         sashcursor="sb_v_double_arrow"  # Standard pointer during drag
     )
     content_pane.pack(fill='both', expand=True, pady=4)
+    """
 
     request_output_widget = tk.Text(request_frame, wrap='word', state='disabled', 
                                     borderwidth=0, highlightthickness=0, 
@@ -312,24 +315,24 @@ def process_gui_request(user_input, context, request_parent, status_label,
                     return
                 debug_log(f"DEBUG.process_gui_request: file_contents is not None")                
                 should_display = is_display_request(local_input)               
-                #local_input = format_user_input_for_read(
-                #    user_input,
-                #    file_path,
-                #    file_contents
-                #)
-                local_input = user_input   # for testing
+                local_input = format_user_input_for_read(
+                    user_input,
+                    file_path,
+                    file_contents
+                )
+                # local_input = user_input   # for testing
             elif is_display_request(local_input):
                 request_output_widget.after(0, lambda: append_response_text('No file path detected in your input. Please include one or open a file first.'))
                 return
 
-            if should_display and file_contents is not None:
-                file_frame = create_file_content_frame(content_pane, file_path, file_contents)
-                content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane         
+            # No need to display the file contents here because the LLM will read the file contents
+            # in agent_workflow and we do not want to show the file contents twice in the GUI
+            # if should_display and file_contents is not None:
+                # file_frame = create_file_content_frame(content_pane, file_path, file_contents)
+                # content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane         
 
-            start_time = time.time()               
-            
-            response = agent_workflow(local_input, context, cancel_event)        
-            
+            start_time = time.time()                       
+            response = agent_workflow(local_input, context, cancel_event)                    
             end_time = time.time()    
             debug_log(f"DEBUG.process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
@@ -687,9 +690,11 @@ def main():
             
             file_contents = read_file_contents(file_path)
             if file_contents is not None:
-                if is_display_request(user_input):
-                    print(f"\nContents of {file_path}:")                                
-                    print(f"File contentes: \n{file_contents}")
+                # do not show the file contents here because the LLM will read the file contents
+                # in agent_workflow and we do not want to show the file contents twice in the CLI
+                #if is_display_request(user_input):
+                #    print(f"\nContents of {file_path}:")                                
+                #    print(f"File contentes: \n{file_contents}")
                 user_input = format_user_input_for_read(
                     user_input,
                     file_path,
