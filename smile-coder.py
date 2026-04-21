@@ -1,5 +1,6 @@
 from io import StringIO
 import sys
+import platform
 
 import ollama
 import os
@@ -181,25 +182,13 @@ def format_user_input_for_read(user_input, file_path=None, file_contents=None):
     else:
         return user_input
 
-def print_boxed_text(text):
-    lines = text.splitlines() or ['']
-    width = max(len(line) for line in lines)
-    border = '+' + '-' * (width + 2) + '+'
-    print(border)
-    for line in lines:
-        print(f"| {line.ljust(width)} |")
-    print(border)
-
 
 def create_file_content_frame(parent, path, content):
-    import platform
     std_arrow = "arrow" if platform.system() == "Windows" else "left_ptr"
-
     frame = tk.Frame(parent, bd=1, relief='solid', cursor=std_arrow)
     label_widget = tk.Label(frame, text=f'File content: {os.path.basename(path)}',
                             anchor='w', font=('TkDefaultFont', 10, 'bold'), cursor=std_arrow)
     label_widget.pack(fill='x', padx=4, pady=(4, 0))
-
     toolbar = tk.Frame(frame)
     toolbar.pack(fill='x', padx=4, pady=4)
 
@@ -248,7 +237,8 @@ def cancel_request(cancel_event, status_label, cancel_button):
     cancel_button.pack_forget()
 
 
-def process_gui_request(user_input, context, request_parent, status_label, cancel_button, cancel_event, file_state, history_canvas=None):
+def process_gui_request(user_input, context, request_parent, status_label,
+                        cancel_button, cancel_event, file_state, history_canvas=None):
     debug_log(f"DEBUG.process_gui_request: user_input: {user_input}")
     if not user_input.strip():
         status_label.config(text='Please enter a request.')
@@ -261,12 +251,6 @@ def process_gui_request(user_input, context, request_parent, status_label, cance
     request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', 10, 'bold'))
     request_header.pack(fill='x')
 
-    #content_container = tk.Frame(request_frame)
-    #content_container.pack(fill='both', pady=(4, 4), expand=False)
-    # REPLACE content_container with a PanedWindow
-    #content_pane = tk.PanedWindow(request_frame, orient=tk.VERTICAL, sashrelief='raised', showhandle=True)
-    #content_pane.pack(fill='both', expand=True, pady=4)
-
     content_pane = tk.PanedWindow(
         request_frame, 
         orient=tk.VERTICAL, 
@@ -278,11 +262,14 @@ def process_gui_request(user_input, context, request_parent, status_label, cance
     )
     content_pane.pack(fill='both', expand=True, pady=4)
 
-    #request_output_widget = ScrolledText(request_frame, wrap='word', width=110, height=8, state='disabled')
-    #request_output_widget.pack(fill='both', pady=(4, 8), expand=False)
-    # Initialize output widget and add it as the second pane
-    request_output_widget = ScrolledText(content_pane, wrap='word', width=110, height=8, state='disabled')
-    content_pane.add(request_output_widget, minsize=100, stretch="always") # Added as a resizable pane
+    request_output_widget = tk.Text(request_frame, wrap='word', state='disabled', 
+                                    borderwidth=0, highlightthickness=0, 
+                                    bg='#f0f0f0', font=('TkDefaultFont', 10))
+    request_output_widget.pack(
+        fill='both',  # Essential: fills the space
+        expand=True,  # Essential: grows with the window
+        side='bottom' # Or wherever you place it
+    )
 
     def append_response_text(text):
         request_output_widget.configure(state='normal')
@@ -336,9 +323,6 @@ def process_gui_request(user_input, context, request_parent, status_label, cance
                 return
 
             if should_display and file_contents is not None:
-                #request_frame.after(0, lambda: create_file_content_frame(content_container, file_path, file_contents))
-                #request_output_widget.after(0, lambda: append_response_text(f'Displaying file content for {file_path}'))
-                # Instead of request_frame.after(...)
                 file_frame = create_file_content_frame(content_pane, file_path, file_contents)
                 content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane         
 
@@ -634,7 +618,7 @@ def agent_workflow(user_input, context=[], cancel_event=None):
                             'content': str(observation),
                             'name': tool_name
                         })
-                        full_agent_log += f"\n[Tool Observation ({tool_name})] = {observation}\n"                    
+                        full_agent_log += f"\n[Tool Observation ({tool_name})] = \n{observation}\n"
             else:
                 # messages.append({'role': 'assistant', 'content': message_content})
                 # The following logic is for backward compatibility                
@@ -704,8 +688,8 @@ def main():
             file_contents = read_file_contents(file_path)
             if file_contents is not None:
                 if is_display_request(user_input):
-                    print(f"\nContents of {file_path}:")
-                    print_boxed_text(file_contents)            
+                    print(f"\nContents of {file_path}:")                                
+                    print(f"File contentes: \n{file_contents}")
                 user_input = format_user_input_for_read(
                     user_input,
                     file_path,
