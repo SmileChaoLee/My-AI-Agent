@@ -15,9 +15,10 @@ try:
 except ImportError as exc:
     tk = None
     ScrolledText = None
-    filedialog = None    
-else:    
-    print("Successfully imported tkinter for GUI mode.")
+    filedialog = None
+    TKINTER_IMPORT_ERROR = exc
+else:
+    TKINTER_IMPORT_ERROR = None
 
 try:
     from prompt_toolkit import PromptSession
