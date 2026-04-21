@@ -27,16 +27,15 @@ except ImportError:
     KeyBindings = None
 
 # CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works well on calling tools, some times works
-# CODE_MODEL = 'gemma4:31b' # not works on calling tools
 # CODE_MODEL = 'qwen2.5-coder:7b' # not works on calling tools
-# CODE_MODEL = 'llama3.3:latest'  # not works on calling tools
 CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
 # CODE_MODEL = 'gemma4:26b' # works on calling tools
+# CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # not works in this codebase
 
 
 def sandbox_exec(code: str) -> str:
     """
-    Execute *code* in a fresh global namespace.
+    Cleans markdown and execute *code* in a fresh global namespace.
     Returns the printed output or an error string.
     """
     clean = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)
@@ -585,8 +584,7 @@ def agent_workflow(user_input, context=[], cancel_event=None):
                 model=CODE_MODEL,
                 messages=messages,
                 options={
-                    'temperature': 0.0,
-                    'top_p': 0.0,
+                    'temperature': 0.0,                    
                     'num_ctx': 8192,
                     'stop': ["Observation:", "Observation"] # Force the model to stop here
                 },
