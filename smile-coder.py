@@ -26,15 +26,18 @@ except ImportError:
     PromptSession = None
     KeyBindings = None
 
-# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'
-CODE_MODEL = 'qwen2.5-coder:7b'    
+# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works well on calling tools, some times works
+# CODE_MODEL = 'gemma4:31b' # not works on calling tools
+# CODE_MODEL = 'qwen2.5-coder:7b' # not works on calling tools
+# CODE_MODEL = 'llama3.3:latest'  # not works on calling tools
+# CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
+CODE_MODEL = 'gemma4:26b' # works on calling tools
 
 # --- TOOLS ---
 def python_repl(code: str) -> str:
     """Cleans markdown and executes Python code."""
     # Remove markdown backticks and language tags
-    clean_code = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)
-    
+    clean_code = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)    
     old_stdout = sys.stdout
     redirected_output = sys.stdout = StringIO()
     try:
@@ -48,13 +51,14 @@ def python_repl(code: str) -> str:
 
 def read_file(path_input: str) -> str:
     """Reads a file using absolute or relative paths."""
+    debug_log(f"DEBUG.read_file: path_input = {path_input}")
     # Strip quotes/backticks the LLM might add
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
-    return read_file_contents(target_path)
+    return read_file_contents(target_path)    
 
-TOOLS = {"python_repl": python_repl, "read_file": read_file}    
+AVAILABLE_TOOLS = {"python_repl": python_repl, "read_file": read_file}
 
 # GUI log widget reference; set in gui_main().
 gui_output_widget = None
@@ -300,11 +304,12 @@ def process_gui_request(user_input, context, request_parent, status_label, cance
                     return
                 debug_log(f"DEBUG.process_gui_request: file_contents is not None")                
                 should_display = is_display_request(local_input)               
-                local_input = format_user_input_for_read(
-                    user_input,
-                    file_path,
-                    file_contents
-                )
+                #local_input = format_user_input_for_read(
+                #    user_input,
+                #    file_path,
+                #    file_contents
+                #)
+                local_input = user_input   # for testing
             elif is_display_request(local_input):
                 request_output_widget.after(0, lambda: append_response_text('No file path detected in your input. Please include one or open a file first.'))
                 return
@@ -521,7 +526,7 @@ def agent_workflow(user_input, context=[], cancel_event=None):
     # Setup the ReAct system prompt
     messages = [
         {'role': 'system', 'content': (
-            "You are a coding and debugging expert using the ReAct pattern. "
+            "You are a coding and debugging expert using the provided tools."
             "Solve problems by interleaving Thought, Action, and Observation. "
             "Available Tools: \n"
             "- read_file: Read content of a file. Input: filename string only.\n"
@@ -545,49 +550,101 @@ def agent_workflow(user_input, context=[], cancel_event=None):
     
     full_agent_log = ""    
     # 4. ReAct Loop (Limit to 5 turns to prevent infinite loops)
-    for _ in range(5):
+    for turn in range(5):
+        debug_log(f"DEBUG.agent_workflow: turn = {turn}")
         if cancel_event and cancel_event.is_set():
             break
-
-        response = ''
+        
+        tool_calls = []  # To store tool calls from the model
+        message_content = ''
         try:
-            # Use ollama.chat instead of generate
-            for chunk in ollama.chat(
+            # Use ollama.chat instead of generate            
+            response = ollama.chat(
                 model=CODE_MODEL,
                 messages=messages,
-                options={'temperature': 0.0, 'num_ctx': 8192},
-                stream=True
-            ):
-                if cancel_event and cancel_event.is_set():
-                    response += '\n[CANCELLED]'
-                    break
-                # In .chat(), the text is inside chunk['message']['content']
-                text = chunk['message']['content']
-                response += text
+                options={
+                    'temperature': 0.0,
+                    'top_p': 0.0,
+                    'num_ctx': 8192,
+                    'stop': ["Observation:", "Observation"] # Force the model to stop here
+                },
+                tools=[read_file, python_repl], # native tool support in .chat() with function calling                
+            )
+            if cancel_event and cancel_event.is_set():
+                full_agent_log += '\n[CANCELLED]'
+                break   # exit the streaming loop
+            # In .chat(), the text is inside chunk['message']['content']
+            # Handle text content (Reasoning)
+            if 'message' in response and 'content' in response['message']:                
+                message_content = response['message']['content']
+                has_letters = bool(re.search(r'[a-zA-Z]', message_content))
+                debug_log(f"DEBUG.agent_workflow.has_letters = {has_letters}.")            
+                has_digits = bool(re.search(r'\d', message_content))
+                debug_log(f"DEBUG.agent_workflow.has_digits  = {has_digits}.")                
+                if has_letters or has_digits:
+                    debug_log(f"DEBUG.agent_workflow.message_content has content.")
+                    full_agent_log += f"\n{message_content}\n"                    
+                    messages.append({'role': 'assistant', 'content': message_content})                                        
+            # Handle tool calls (they arrive in the 'tool_calls' field)
+            if 'message' in response and 'tool_calls' in response['message']:
+                # We store these to process after the stream finishes
+                tool_calls = response['message']['tool_calls']
+                debug_log(f"DEBUG.agent_workflow.has tool_calls.")
 
-            messages.append({'role': 'assistant', 'content': response})
-            full_agent_log += f"\n{response}\n"    
-            
-            # Check if we are done
-            if "Answer:" in response:
-                break   # exit the loop ( for _ in range(5) )                            
-            
-            # Tool Execution Logic
-            action_match = re.search(r"Action: (\w+): (.*)", response, re.DOTALL)
-            if action_match:
-                tool_name, tool_input = action_match.groups()
-                # Use your existing TOOLS dictionary
-                observation = TOOLS.get(tool_name, lambda x: "Tool not found")(tool_input)                
-                obs_text = f"Observation: {observation}"
-                full_agent_log += f"\n{obs_text}\n"
-                messages.append({'role': 'user', 'content': obs_text})
+            # The following login is for the native call in .chat() with tools
+            # Check if the model wants to call tools
+            if tool_calls:
+                # Note: We include the tool_calls in the message so Ollama knows it asked for them
+                messages.append({
+                    'role': 'assistant', 
+                    'content': message_content, 
+                    'tool_calls': tool_calls
+                })
+                # Handle the tool calls
+                for call in tool_calls:
+                    tool_name = call.function.name
+                    debug_log(f"DEBUG.agent_workflow.for call: tool_name = {tool_name}")
+                    tool_args = call.function.arguments # This is a dictionary                
+                    if tool_name in AVAILABLE_TOOLS:
+                        # Execute the tool
+                        observation = AVAILABLE_TOOLS[tool_name](**tool_args)
+                        # Append the observation to the conversation
+                        messages.append({
+                            'role': 'tool',
+                            'content': str(observation),
+                            'name': tool_name
+                        })
+                        full_agent_log += f"\n[Tool Observation ({tool_name})] = {observation}\n"                    
             else:
-                # If the model didn't provide an Action or Answer, stop or prompt it
-                break   # exit the loop ( for _ in range(5) )
+                # messages.append({'role': 'assistant', 'content': message_content})
+                # The following logic is for backward compatibility                
+                # and instead outputs Action: ... in text
+                # Check if we are done
+                if "Answer:" in message_content:
+                    debug_log(f"DEBUG.agent_workflow: Answer found in response.")
+                    break   # exit the loop ( for _ in range(5) )            
+                # Tool Execution Logic
+                action_match = re.search(r"Action: (\w+): (.*)", message_content, re.DOTALL)
+                debug_log(f"DEBUG.agent_workflow: action_match: {action_match}")
+                if action_match:
+                    tool_name, tool_input = action_match.groups()
+                    debug_log(f"DEBUG.agent_workflow.action_match: tool_name = {tool_name}, tool_input = {tool_input}")
+                    # Use your existing TOOLS dictionary
+                    # observation = AVAILABLE_TOOLS.get(tool_name, lambda x: "Tool not found")(tool_input)
+                    if tool_name in AVAILABLE_TOOLS:
+                        observation = AVAILABLE_TOOLS.get(tool_name)(tool_input)                                                
+                        obs_text = f"Observation: {observation}"
+                        full_agent_log += f"\n{obs_text}\n"
+                        messages.append({'role': 'user', 'content': obs_text})                
+                else:
+                    # If the model didn't provide an Action or Answer, stop or prompt it
+                    break   # exit the loop ( for _ in range(5) )        
+                    # continue
 
-        except Exception as e:
-            response += f'Error: {e}'
-            full_agent_log += f"\n{response}\n"
+        except Exception as e:                        
+            error_msg = f"Error: {e}"
+            debug_log(f"DEBUG.agent_workflow.Exception: {error_msg}")
+            full_agent_log += f"\n{error_msg}\n"
         
     return full_agent_log
 
