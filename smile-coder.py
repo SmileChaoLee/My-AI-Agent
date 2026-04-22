@@ -32,12 +32,13 @@ CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
 # CODE_MODEL = 'gemma4:26b' # works on calling tools
 # CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # not works in this codebase
 
-
+# --- TOOLS ---
 def sandbox_exec(code: str) -> str:
     """
     Cleans markdown and execute *code* in a fresh global namespace.
     Returns the printed output or an error string.
     """
+    debug_log(f"DEBUG.sandbox_exec()")
     clean = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)
     old_stdout = sys.stdout
     sys.stdout = StringIO()
@@ -50,13 +51,12 @@ def sandbox_exec(code: str) -> str:
     finally:
         sys.stdout = old_stdout
 
-
-# --- TOOLS ---
 def python_repl(code: str) -> str:
     """
     Cleans markdown and executes Python code.
     This function might modify the original code.
     """
+    debug_log(f"DEBUG.python_repl()")
     # Remove markdown backticks and language tags
     clean_code = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)    
     old_stdout = sys.stdout
