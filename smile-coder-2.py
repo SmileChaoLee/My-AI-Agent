@@ -2,7 +2,6 @@ from io import StringIO
 import sys
 import platform
 
-import ollama
 import os
 import re
 import time
@@ -15,10 +14,9 @@ try:
 except ImportError as exc:
     tk = None
     ScrolledText = None
-    filedialog = None
-    TKINTER_IMPORT_ERROR = exc
-else:
-    TKINTER_IMPORT_ERROR = None
+    filedialog = None    
+else:    
+    print("Successfully imported tkinter for GUI mode.")
 
 try:
     from prompt_toolkit import PromptSession
@@ -27,18 +25,27 @@ except ImportError:
     PromptSession = None
     KeyBindings = None
 
+from langchain_ollama import ChatOllama
+from langchain_classic import hub # works
+# import langchainhub as hub    # not works
+from langchain_core.tools import tool
+from langchain.agents import create_agent
+from langchain_classic.agents import AgentExecutor, create_react_agent
+
 # CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works well on calling tools, some times works
 # CODE_MODEL = 'qwen2.5-coder:7b' # not works on calling tools
-CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
-# CODE_MODEL = 'gemma4:26b' # works on calling tools
+# CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
+CODE_MODEL = 'gemma4:26b' # works on calling tools
 # CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # not works in this codebase
 
-
+# --- TOOLS ---
+@tool("sandbox_exec")
 def sandbox_exec(code: str) -> str:
     """
     Cleans markdown and execute *code* in a fresh global namespace.
     Returns the printed output or an error string.
     """
+    debug_log(f"DEBUG.sandbox_exec()")
     clean = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)
     old_stdout = sys.stdout
     sys.stdout = StringIO()
@@ -51,13 +58,13 @@ def sandbox_exec(code: str) -> str:
     finally:
         sys.stdout = old_stdout
 
-
-# --- TOOLS ---
+@tool("python_repl")
 def python_repl(code: str) -> str:
     """
     Cleans markdown and executes Python code.
     This function might modify the original code.
     """
+    debug_log(f"DEBUG.python_repl()")
     # Remove markdown backticks and language tags
     clean_code = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)    
     old_stdout = sys.stdout
@@ -71,16 +78,18 @@ def python_repl(code: str) -> str:
     finally:
         sys.stdout = old_stdout    
 
+@tool("read_file")
 def read_file(path_input: str) -> str:
     """Reads a file using absolute or relative paths."""
-    debug_log(f"DEBUG.read_file: path_input = {path_input}")
+    debug_log(f"DEBUG.read_file(): path_input = {path_input}")
     # Strip quotes/backticks the LLM might add
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
     return read_file_contents(target_path)    
 
-AVAILABLE_TOOLS = {"python_repl": python_repl, "sandbox_exec": sandbox_exec, "read_file": read_file}
+# Define LangChain Tools
+tools = [read_file, sandbox_exec]
 
 # GUI log widget reference; set in gui_main().
 gui_output_widget = None
@@ -294,7 +303,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
     gui_output_widget = request_output_widget
 
     def worker():
-        try:        
+        try:                        
             local_input = user_input          
             file_path = extract_file_path(local_input)
             debug_log(f"DEBUG.process_gui_request: file_path: {file_path}")
@@ -302,9 +311,9 @@ def process_gui_request(user_input, context, request_parent, status_label,
                 file_path = file_state.get('last_file_path')
                 if file_path and is_display_request(local_input):
                     debug_log(f"DEBUG.process_gui_request: Using last file path: {file_path}")
-
+            
             should_display = False
-            file_contents = None
+            file_contents = None                
             if file_path:
                 debug_log(f"DEBUG.process_gui_request: last file path before update: {file_state.get('last_file_path')}")
                 debug_log(f"DEBUG.process_gui_request: Reading file: {file_path}")
@@ -312,15 +321,15 @@ def process_gui_request(user_input, context, request_parent, status_label,
                 file_contents = read_file_contents(file_path)
                 if file_contents is None:
                     request_output_widget.after(0, lambda: append_response_text(f'Could not read the requested file: {file_path}'))
-                    return
-                debug_log(f"DEBUG.process_gui_request: file_contents is not None")                
+                    return            
+                debug_log(f"DEBUG.process_gui_request: file_contents is not None")
                 should_display = is_display_request(local_input)               
                 local_input = format_user_input_for_read(
                     user_input,
                     file_path,
                     file_contents
                 )
-                # local_input = user_input   # for testing
+                # local_input = user_input
             elif is_display_request(local_input):
                 request_output_widget.after(0, lambda: append_response_text('No file path detected in your input. Please include one or open a file first.'))
                 return
@@ -328,17 +337,18 @@ def process_gui_request(user_input, context, request_parent, status_label,
             # No need to display the file contents here because the LLM will read the file contents
             # in agent_workflow and we do not want to show the file contents twice in the GUI
             # if should_display and file_contents is not None:
-                # file_frame = create_file_content_frame(content_pane, file_path, file_contents)
-                # content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane         
-
-            start_time = time.time()                       
-            response = agent_workflow(local_input, context, cancel_event)                    
+            # file_frame = create_file_content_frame(content_pane, file_path, file_contents)
+            # content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane
+            debug_log(f"DEBUG.process_gui_request: time.time()")
+            start_time = time.time()
+            debug_log(f"DEBUG.process_gui_request: agent_workflow()")
+            response = agent_workflow(local_input, context, cancel_event)            
             end_time = time.time()    
             debug_log(f"DEBUG.process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
-            if not cancel_event.is_set():              
+            if not cancel_event.is_set():
                 add_to_context(context, user_input, response)            
-                request_output_widget.after(0, lambda: append_response_text(f'Agent response:\n{response}'))
+                request_output_widget.after(0, lambda: append_response_text(f'\nAgent response:\n{response}'))
         except Exception as exc:
             if not cancel_event.is_set():
                 request_output_widget.after(0, lambda: append_response_text(f'Error: {exc}'))
@@ -527,14 +537,21 @@ def add_to_context(context_list, user_input, response, max_history=10):
 
 # --- AGENT ENGINE ---
 def agent_workflow(user_input, context=[], cancel_event=None):
+    """
+    Uses LangChain to orchestrate the ReAct agent with Ollama.
+    """
+    debug_log("DEBUG.agent_workflow: Started agent_workflow")
     if not user_input.strip():
-        debug_log(f"DEBUG.agent_workflow: No user input provided.")
-    
-    # 1. Build the messages list
-    # Setup the ReAct system prompt
+        debug_log("DEBUG.agent_workflow: No user input provided.")
+
+    # 1. Prepare the History (Context)
+    # LangChain expects messages in a specific format. We build a list of ChatMessage objects.
+    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+    debug_log("DEBUG.agent_workflow: Setting messages with system prompt and history")
     messages = [
-        {'role': 'system', 'content': (
-            "You are a coding and debugging expert using the provided tools."
+        SystemMessage(content=(
+            "You are a coding and debugging expert using the provided tools. "
             "Solve problems by interleaving Thought, Action, and Observation. "
             "Available Tools: \n"
             "- read_file: Read content of a file. Input: filename string only.\n"
@@ -545,114 +562,69 @@ def agent_workflow(user_input, context=[], cancel_event=None):
             "Observation: [result from tool]\n"
             "... (repeat until solved)\n"
             "Answer: [your final conclusion]"
-        )},
+        ))
     ]
 
-    # 2. Add context to the conversation (if you want the model to see history)
+    # Add history
     for entry in context:
-        messages.append({'role': 'user', 'content': entry.get('user_input', '')})
-        messages.append({'role': 'assistant', 'content': entry.get('response', '')})
+        messages.append(HumanMessage(content=entry.get('user_input', '')))
+        messages.append(AIMessage(content=entry.get('response', '')))
 
-    # 3. Add the current user input
-    messages.append({'role': 'user', 'content': user_input})
-    
-    full_agent_log = ""    
-    # 4. ReAct Loop (Limit to 5 turns to prevent infinite loops)
-    for turn in range(5):
-        debug_log(f"DEBUG.agent_workflow: turn = {turn}")
-        if cancel_event and cancel_event.is_set():
-            break
+    # Add current user input
+    messages.append(HumanMessage(content=user_input))
+
+    # 2. Initialize LangChain Components
+    debug_log("DEBUG.agent_workflow: ChatOllama()")
+    llm = ChatOllama(
+        model=CODE_MODEL,
+        temperature=0.0,
+        num_ctx=8192,
+        timeout=None,
+        streaming=False,        
+    )
+    # debug_log(f"DEBUG: {llm.invoke('Hello, who are you?')}")
+
+    full_agent_log = ""
+
+    try:
+        # 3. Create the Prompt
+        # We use the ReAct prompt template from the hub
+        debug_log("DEBUG.agent_workflow: hub.pull()")
+        prompt = hub.pull("hwchase17/react")            
+    except Exception as e:
+        error_msg = f"agent_workflow.hub.pull().Exception: {str(e)}"
+        debug_log(f"DEBUG.agent_workflow.hub.pull.Exception: {error_msg}")
+        full_agent_log += f"\n{error_msg}\n"
+        return full_agent_log
         
-        tool_calls = []  # To store tool calls from the model
-        message_content = ''
-        try:
-            # Use ollama.chat instead of generate            
-            response = ollama.chat(
-                model=CODE_MODEL,
-                messages=messages,
-                options={
-                    'temperature': 0.0,                    
-                    'num_ctx': 8192,
-                    'stop': ["Observation:", "Observation"] # Force the model to stop here
-                },
-                tools=[read_file, sandbox_exec], # native tool support in .chat() with function calling                
-            )
-            if cancel_event and cancel_event.is_set():
-                full_agent_log += '\n[CANCELLED]'
-                break   # exit the streaming loop
-            # In .chat(), the text is inside chunk['message']['content']
-            # Handle text content (Reasoning)
-            if 'message' in response and 'content' in response['message']:                
-                message_content = response['message']['content']
-                has_letters = bool(re.search(r'[a-zA-Z]', message_content))
-                debug_log(f"DEBUG.agent_workflow.has_letters = {has_letters}.")            
-                has_digits = bool(re.search(r'\d', message_content))
-                debug_log(f"DEBUG.agent_workflow.has_digits  = {has_digits}.")                
-                if has_letters or has_digits:
-                    debug_log(f"DEBUG.agent_workflow.message_content has content.")
-                    full_agent_log += f"\n{message_content}\n"                    
-                    messages.append({'role': 'assistant', 'content': message_content})                                        
-            # Handle tool calls (they arrive in the 'tool_calls' field)
-            if 'message' in response and 'tool_calls' in response['message']:
-                # We store these to process after the stream finishes
-                tool_calls = response['message']['tool_calls']
-                debug_log(f"DEBUG.agent_workflow.has tool_calls.")
+    try:    
+        # 4. Create the Agent
+        debug_log("DEBUG.agent_workflow: create_react_agent()")
+        agent = create_react_agent(llm, tools, prompt)        
+    except Exception as e:
+        error_msg = f"agent_workflow.create_react_agent().Exception error: {str(e)}"
+        debug_log(f"DEBUG.agent_workflow.create_react_agent.Exception")
+        full_agent_log += f"\n{error_msg}\n"
+        return full_agent_log
+  
+    try:
+        # 5. Execute the Agent
+        agent_executor = AgentExecutor(
+            agent=agent,
+            tools=tools,
+            verbose=True,
+            handle_parsing_errors=True
+        )
+        debug_log("DEBUG.agent_workflow: agent_executor.invoke()")
+        result = agent_executor.invoke({"input": user_input})
+        debug_log(f"DEBUG.agent_workflow: result = {result}")
+        full_agent_log = result.get("output", "No output key.....")
+    except Exception as e:
+        error_msg = f"agent_workflow.agent_executor.invoke().Exception: {str(e)}"
+        debug_log(f"DEBUG.agent_workflow.run agent_executor.invoke().Exception")
+        full_agent_log += f"\n{error_msg}\n"
+        return full_agent_log
 
-            # The following login is for the native call in .chat() with tools
-            # Check if the model wants to call tools
-            if tool_calls:
-                # Note: We include the tool_calls in the message so Ollama knows it asked for them
-                messages.append({
-                    'role': 'assistant', 
-                    'content': message_content, 
-                    'tool_calls': tool_calls
-                })
-                # Handle the tool calls
-                for call in tool_calls:
-                    tool_name = call.function.name
-                    debug_log(f"DEBUG.agent_workflow.for call: tool_name = {tool_name}")
-                    tool_args = call.function.arguments # This is a dictionary                
-                    if tool_name in AVAILABLE_TOOLS:
-                        # Execute the tool
-                        observation = AVAILABLE_TOOLS[tool_name](**tool_args)
-                        # Append the observation to the conversation
-                        messages.append({
-                            'role': 'tool',
-                            'content': str(observation),
-                            'name': tool_name
-                        })
-                        full_agent_log += f"\n[Tool Observation ({tool_name})] = \n{observation}\n"
-            else:
-                # messages.append({'role': 'assistant', 'content': message_content})
-                # The following logic is for backward compatibility                
-                # and instead outputs Action: ... in text
-                # Check if we are done
-                if "Answer:" in message_content:
-                    debug_log(f"DEBUG.agent_workflow: Answer found in response.")
-                    break   # exit the loop ( for _ in range(5) )            
-                # Tool Execution Logic
-                action_match = re.search(r"Action: (\w+): (.*)", message_content, re.DOTALL)
-                debug_log(f"DEBUG.agent_workflow: action_match: {action_match}")
-                if action_match:
-                    tool_name, tool_input = action_match.groups()
-                    debug_log(f"DEBUG.agent_workflow.action_match: tool_name = {tool_name}, tool_input = {tool_input}")
-                    # Use your existing TOOLS dictionary
-                    # observation = AVAILABLE_TOOLS.get(tool_name, lambda x: "Tool not found")(tool_input)
-                    if tool_name in AVAILABLE_TOOLS:
-                        observation = AVAILABLE_TOOLS.get(tool_name)(tool_input)                                                
-                        obs_text = f"Observation: {observation}"
-                        full_agent_log += f"\n{obs_text}\n"
-                        messages.append({'role': 'user', 'content': obs_text})                
-                else:
-                    # If the model didn't provide an Action or Answer, stop or prompt it
-                    break   # exit the loop ( for _ in range(5) )        
-                    # continue
-
-        except Exception as e:                        
-            error_msg = f"Error: {e}"
-            debug_log(f"DEBUG.agent_workflow.Exception: {error_msg}")
-            full_agent_log += f"\n{error_msg}\n"
-        
     return full_agent_log
 
 
