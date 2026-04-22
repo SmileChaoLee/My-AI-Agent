@@ -86,7 +86,7 @@ def read_file(path_input: str) -> str:
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
-    return read_file_contents(target_path)    
+    return read_file_content(target_path)    
 
 # Define LangChain Tools
 tools = [read_file, sandbox_exec]
@@ -131,6 +131,7 @@ FILE_REQUEST_PATTERNS = [
     r'\bshow( me)?( the)? file\b',
     r'\bsend.*file\b',
     r'\battach file\b',
+    r'\bfile content\b'
     r'\bfile contents\b'
 ]
 
@@ -166,7 +167,7 @@ def is_display_request(text):
     return any(re.search(pattern, text) for pattern in DISPLAY_FILE_PATTERNS)
 
 
-def read_file_contents(path):
+def read_file_content(path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -181,11 +182,11 @@ def read_file_contents(path):
         return None
 
 
-def format_user_input_for_read(user_input, file_path=None, file_contents=None):
-    if file_path and file_contents:
+def format_user_input_for_read(user_input, file_path=None, file_content=None):
+    if file_path and file_content:
         return (
             f"File path: \n{file_path}"
-            f"\n\nFile contents:\n{file_contents}"
+            f"\n\nFile content:\n{file_content}"
             f"\n\nUser question:\n{user_input}"
         )
     else:
@@ -292,6 +293,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
             history_canvas.after(50, lambda: history_canvas.yview_moveto(1.0))
 
     append_response_text(f">>> {user_input}")
+    append_response_text(">>> Processing your request, please wait...")
     if history_canvas is not None:
         history_canvas.after(100, lambda: history_canvas.yview_moveto(1.0))
     status_label.config(text='Processing...', fg='red', font=('TkDefaultFont', 10, 'bold'))
@@ -313,31 +315,31 @@ def process_gui_request(user_input, context, request_parent, status_label,
                     debug_log(f"DEBUG.process_gui_request: Using last file path: {file_path}")
             
             should_display = False
-            file_contents = None                
+            file_content = None                
             if file_path:
                 debug_log(f"DEBUG.process_gui_request: last file path before update: {file_state.get('last_file_path')}")
                 debug_log(f"DEBUG.process_gui_request: Reading file: {file_path}")
                 file_state['last_file_path'] = file_path
-                file_contents = read_file_contents(file_path)
-                if file_contents is None:
+                file_content = read_file_content(file_path)
+                if file_content is None:
                     request_output_widget.after(0, lambda: append_response_text(f'Could not read the requested file: {file_path}'))
                     return            
-                debug_log(f"DEBUG.process_gui_request: file_contents is not None")
+                debug_log(f"DEBUG.process_gui_request: file_content is not None")
                 should_display = is_display_request(local_input)               
-                local_input = format_user_input_for_read(
-                    user_input,
-                    file_path,
-                    file_contents
-                )
-                # local_input = user_input
+                #local_input = format_user_input_for_read(
+                #    user_input,
+                #    file_path,
+                #    file_content
+                #)
+                local_input = user_input
             elif is_display_request(local_input):
                 request_output_widget.after(0, lambda: append_response_text('No file path detected in your input. Please include one or open a file first.'))
                 return
 
-            # No need to display the file contents here because the LLM will read the file contents
-            # in agent_workflow and we do not want to show the file contents twice in the GUI
-            # if should_display and file_contents is not None:
-            # file_frame = create_file_content_frame(content_pane, file_path, file_contents)
+            # No need to display the file content here because the LLM will read the file content
+            # in agent_workflow and we do not want to show the file content twice in the GUI
+            # if should_display and file_content is not None:
+            # file_frame = create_file_content_frame(content_pane, file_path, file_content)
             # content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane
             debug_log(f"DEBUG.process_gui_request: time.time()")
             start_time = time.time()
@@ -615,10 +617,9 @@ def agent_workflow(user_input, context=[], cancel_event=None):
             verbose=True,
             handle_parsing_errors=True
         )
-        debug_log("DEBUG.agent_workflow: agent_executor.invoke()")
-        result = agent_executor.invoke({"input": user_input})
-        debug_log(f"DEBUG.agent_workflow: result = {result}")
-        full_agent_log = result.get("output", "No output key.....")
+        debug_log("DEBUG.agent_workflow: agent_executor.invoke()")    
+        result = agent_executor.invoke({"input": user_input})        
+        full_agent_log = result.get("output")
     except Exception as e:
         error_msg = f"agent_workflow.agent_executor.invoke().Exception: {str(e)}"
         debug_log(f"DEBUG.agent_workflow.run agent_executor.invoke().Exception")
@@ -660,18 +661,19 @@ def main():
             print(f"\nDEBUG: m_file_path: {m_file_path}")
             print(f"DEBUG: Reading file: {file_path}")
             
-            file_contents = read_file_contents(file_path)
-            if file_contents is not None:
-                # do not show the file contents here because the LLM will read the file contents
-                # in agent_workflow and we do not want to show the file contents twice in the CLI
+            file_content = read_file_content(file_path)
+            if file_content is not None:
+                # do not show the file content here because the LLM will read the file content
+                # in agent_workflow and we do not want to show the file content twice in the CLI
                 #if is_display_request(user_input):
-                #    print(f"\nContents of {file_path}:")                                
-                #    print(f"File contentes: \n{file_contents}")
-                user_input = format_user_input_for_read(
-                    user_input,
-                    file_path,
-                    file_contents
-                )
+                #    print(f"\nContent of {file_path}:")                                
+                #    print(f"File content: \n{file_}")                
+                #user_input = format_user_input_for_read(
+                #    user_input,
+                #    file_path,
+                #    file_content
+                #)
+                print("file_content is not None.")
             else:
                 print("Could not read the requested file. Try again.")
                 continue
