@@ -31,8 +31,8 @@ from langchain.agents import create_agent
 
 # CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works
 # CODE_MODEL = 'qwen2.5-coder:7b' # not works
-CODE_MODEL = 'gpt-oss:20b'  # works
-# CODE_MODEL = 'gemma4:26b' # works
+# CODE_MODEL = 'gpt-oss:20b'  # works
+CODE_MODEL = 'gemma4:26b' # works
 # CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works
 
 # --- TOOLS ---
@@ -180,6 +180,17 @@ def read_file_content(path):
         return None
 
 
+def format_user_input_for_read(user_input, file_path=None, file_content=None):
+    if file_path and file_content:
+        return (
+            f"File path: \n{file_path}"
+            f"\n\nFile content:\n{file_content}"
+            f"\n\nUser question:\n{user_input}"
+        )
+    else:
+        return user_input
+
+
 def create_file_content_frame(parent, path, content):
     std_arrow = "arrow" if platform.system() == "Windows" else "left_ptr"
     frame = tk.Frame(parent, bd=1, relief='solid', cursor=std_arrow)
@@ -310,8 +321,13 @@ def process_gui_request(user_input, context, request_parent, status_label,
                 if file_content is None:
                     request_output_widget.after(0, lambda: append_response_text(f'Could not read the requested file: {file_path}'))
                     return            
-                debug_log(f"DEBUG.process_gui_request: file_content is not None")                
-                local_input = user_input
+                debug_log(f"DEBUG.process_gui_request: file_content is not None")                                
+                local_input = format_user_input_for_read(
+                    user_input,
+                    file_path,
+                    file_content
+                )
+                # local_input = user_input
             elif is_display_request(local_input):
                 request_output_widget.after(0, lambda: append_response_text('No file path detected in your input. Please include one or open a file first.'))
                 return
@@ -647,6 +663,11 @@ def main():
                 #if is_display_request(user_input):
                 #    print(f"\nContent of {file_path}:")                                
                 #    print(f"File content: \n{file_}")                
+                user_input = format_user_input_for_read(
+                    user_input,
+                    file_path,
+                    file_content
+                )
                 print("file_content is not None.")
             else:
                 print("Could not read the requested file. Try again.")
