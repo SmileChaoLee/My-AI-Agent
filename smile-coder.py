@@ -330,8 +330,8 @@ def process_gui_request(user_input, context, request_parent, status_label,
                 # file_frame = create_file_content_frame(content_pane, file_path, file_contents)
                 # content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane         
 
-            start_time = time.time()                       
-            response = agent_workflow(local_input, context, cancel_event)                    
+            start_time = time.time()
+            response = agent_workflow(local_input, context, cancel_event)
             end_time = time.time()    
             debug_log(f"DEBUG.process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
