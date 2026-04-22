@@ -27,16 +27,14 @@ except ImportError:
 
 from langchain_ollama import ChatOllama
 from langchain_classic import hub # works
-# import langchainhub as hub    # not works
 from langchain_core.tools import tool
-from langchain.agents import create_agent
 from langchain_classic.agents import AgentExecutor, create_react_agent
 
-# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works well on calling tools, some times works
-# CODE_MODEL = 'qwen2.5-coder:7b' # not works on calling tools
-# CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
-CODE_MODEL = 'gemma4:26b' # works on calling tools
-# CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # not works in this codebase
+# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # works, some times no
+# CODE_MODEL = 'qwen2.5-coder:7b' # not works
+# CODE_MODEL = 'gpt-oss:20b'  # not works
+CODE_MODEL = 'gemma4:26b' # works
+# CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # not works
 
 # --- TOOLS ---
 @tool("sandbox_exec")
@@ -305,7 +303,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
     gui_output_widget = request_output_widget
 
     def worker():
-        try:                        
+        try:                                
             local_input = user_input          
             file_path = extract_file_path(local_input)
             debug_log(f"DEBUG.process_gui_request: file_path: {file_path}")
@@ -324,14 +322,14 @@ def process_gui_request(user_input, context, request_parent, status_label,
                 if file_content is None:
                     request_output_widget.after(0, lambda: append_response_text(f'Could not read the requested file: {file_path}'))
                     return            
-                debug_log(f"DEBUG.process_gui_request: file_content is not None")
+                debug_log(f"DEBUG.process_gui_request: file_content is not None")                                
                 should_display = is_display_request(local_input)               
-                #local_input = format_user_input_for_read(
-                #    user_input,
-                #    file_path,
-                #    file_content
-                #)
-                local_input = user_input
+                local_input = format_user_input_for_read(
+                    user_input,
+                    file_path,
+                    file_content
+                )
+                # local_input = user_input
             elif is_display_request(local_input):
                 request_output_widget.after(0, lambda: append_response_text('No file path detected in your input. Please include one or open a file first.'))
                 return
@@ -582,7 +580,8 @@ def agent_workflow(user_input, context=[], cancel_event=None):
         temperature=0.0,
         num_ctx=8192,
         timeout=None,
-        streaming=False,        
+        streaming=False,
+        stop=None
     )
     # debug_log(f"DEBUG: {llm.invoke('Hello, who are you?')}")
 
@@ -668,11 +667,11 @@ def main():
                 #if is_display_request(user_input):
                 #    print(f"\nContent of {file_path}:")                                
                 #    print(f"File content: \n{file_}")                
-                #user_input = format_user_input_for_read(
-                #    user_input,
-                #    file_path,
-                #    file_content
-                #)
+                user_input = format_user_input_for_read(
+                    user_input,
+                    file_path,
+                    file_content
+                )
                 print("file_content is not None.")
             else:
                 print("Could not read the requested file. Try again.")
