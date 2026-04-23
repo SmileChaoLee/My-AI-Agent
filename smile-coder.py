@@ -32,6 +32,8 @@ CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
 # CODE_MODEL = 'gemma4:26b' # works on calling tools
 # CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # not works in this codebase
 
+FONT_SIZE = 12
+
 # --- TOOLS ---
 def sandbox_exec(code: str) -> str:
     """
@@ -187,7 +189,7 @@ def create_file_content_frame(parent, path, content):
     std_arrow = "arrow" if platform.system() == "Windows" else "left_ptr"
     frame = tk.Frame(parent, bd=1, relief='solid', cursor=std_arrow)
     label_widget = tk.Label(frame, text=f'File content: {os.path.basename(path)}',
-                            anchor='w', font=('TkDefaultFont', 10, 'bold'), cursor=std_arrow)
+                            anchor='w', font=('TkDefaultFont', FONT_SIZE, 'bold'), cursor=std_arrow)
     label_widget.pack(fill='x', padx=4, pady=(4, 0))
     toolbar = tk.Frame(frame)
     toolbar.pack(fill='x', padx=4, pady=4)
@@ -233,7 +235,7 @@ def debug_log(message):
 
 def cancel_request(cancel_event, status_label, cancel_button):
     cancel_event.set()
-    status_label.config(text='Cancelled', fg='orange', font=('TkDefaultFont', 10, 'bold'))
+    status_label.config(text='Cancelled', fg='orange', font=('TkDefaultFont', FONT_SIZE, 'bold'))
     cancel_button.pack_forget()
 
 
@@ -248,7 +250,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
     request_frame.pack(fill='x', padx=8, pady=4, expand=False)
 
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', 10, 'bold'))
+    request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', FONT_SIZE, 'bold'))
     request_header.pack(fill='x')
 
     # The following is used anymore
@@ -267,7 +269,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
 
     request_output_widget = tk.Text(request_frame, wrap='word', state='disabled', 
                                     borderwidth=0, highlightthickness=0, 
-                                    bg='#f0f0f0', font=('TkDefaultFont', 10))
+                                    bg='#f0f0f0', font=('TkDefaultFont', FONT_SIZE))
     request_output_widget.pack(
         fill='both',  # Essential: fills the space
         expand=True,  # Essential: grows with the window
@@ -285,7 +287,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
     append_response_text(f">>> {user_input}")
     if history_canvas is not None:
         history_canvas.after(100, lambda: history_canvas.yview_moveto(1.0))
-    status_label.config(text='Processing...', fg='red', font=('TkDefaultFont', 10, 'bold'))
+    status_label.config(text='Processing...', fg='red', font=('TkDefaultFont', FONT_SIZE, 'bold'))
     cancel_event.clear()
     cancel_button.pack(side='right')
     cancel_button.config(command=lambda: cancel_request(cancel_event, status_label, cancel_button))
@@ -344,7 +346,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
                 request_output_widget.after(0, lambda: append_response_text(f'Error: {exc}'))
         finally:
             if not cancel_event.is_set():
-                status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', 10, 'bold')))
+                status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', FONT_SIZE, 'bold')))
             cancel_button.after(0, lambda: cancel_button.pack_forget())
 
     threading.Thread(target=worker, daemon=True).start()
@@ -366,14 +368,15 @@ def gui_main():
 
     root.title('Smile Coder GUI')
     root.geometry('1000x800')
+    
+    label = tk.Label(root, text='Enter your request and click Submit:',
+                     font=('TkDefaultFont', FONT_SIZE, 'bold'))
 
-    label = tk.Label(root, text='Enter your request and click Submit:')
-
-    input_widget = ScrolledText(root, wrap='word', width=110, height=8)
+    input_widget = ScrolledText(root, wrap='word', width=110, height=8, font=('TkDefaultFont', FONT_SIZE))
 
     button_frame = tk.Frame(root)
 
-    shortcuts_label = tk.Label(root, text='Shortcuts: Ctrl+Enter = Submit, Ctrl+L = Clear, Ctrl+Q = Exit', anchor='w', fg='gray30', font=('TkDefaultFont', 9))
+    shortcuts_label = tk.Label(root, text='Shortcuts: Ctrl+Enter = Submit, Ctrl+L = Clear, Ctrl+Q = Exit', anchor='w', fg='gray30', font=('TkDefaultFont', FONT_SIZE))
 
     history_frame_container = tk.Frame(root)
     history_frame_container.pack(fill='both', padx=8, pady=(0, 8), expand=True)
@@ -405,7 +408,7 @@ def gui_main():
         history_canvas.itemconfigure(history_window, width=event.width)
     history_canvas.bind('<Configure>', on_canvas_configure)
 
-    output_label = tk.Label(history_frame, text='Output:')
+    output_label = tk.Label(history_frame, text='Output:', font=('TkDefaultFont', FONT_SIZE, 'bold'))
     output_label.pack(anchor='w')
 
     file_state = {'last_file_path': None}
@@ -435,7 +438,7 @@ def gui_main():
     def on_clear(event=None):
         clear_output()
 
-    default_status_font = ('TkDefaultFont', 10, 'bold')
+    default_status_font = ('TkDefaultFont', FONT_SIZE, 'bold')
     status_frame = tk.Frame(root)
     status_frame.pack(fill='x', padx=8, pady=(0, 8))
 
@@ -446,7 +449,8 @@ def gui_main():
     status_label = tk.Label(processing_frame, text='Ready', fg='green', font=default_status_font)
     status_label.pack(side='left')
 
-    cancel_button = tk.Button(processing_frame, text='Cancel', command=lambda: None, font=('TkDefaultFont', 10, 'bold'))
+    cancel_button = tk.Button(processing_frame, text='Cancel', command=lambda: None,
+                              font=('TkDefaultFont', FONT_SIZE, 'bold'))
     cancel_button.pack(side='left', padx=(8, 0))
     cancel_button.pack_forget()  # Hide initially
 
@@ -455,13 +459,16 @@ def gui_main():
     global gui_output_widget
     gui_output_widget = None
 
-    submit_button = tk.Button(button_frame, text='Submit', command=on_submit)
+    submit_button = tk.Button(button_frame, text='Submit', command=on_submit,
+                              font=('TkDefaultFont', FONT_SIZE))
     submit_button.pack(side='left')
 
-    browse_button = tk.Button(button_frame, text='Browse File', command=browse_file)
+    browse_button = tk.Button(button_frame, text='Browse File', command=browse_file,
+                              font=('TkDefaultFont', FONT_SIZE))
     browse_button.pack(side='left', padx=(8, 0))
 
-    clear_button = tk.Button(button_frame, text='Clear Output', command=clear_output)
+    clear_button = tk.Button(button_frame, text='Clear Output', command=clear_output,
+                             font=('TkDefaultFont', FONT_SIZE))
     clear_button.pack(side='left', padx=(8, 0))
 
     root.bind('<Control-Return>', on_submit)
@@ -469,7 +476,8 @@ def gui_main():
     root.bind('<Control-L>', on_clear)
     root.bind('<Control-q>', lambda event: root.destroy())
 
-    exit_button = tk.Button(button_frame, text='Exit', command=root.destroy)
+    exit_button = tk.Button(button_frame, text='Exit', command=root.destroy,
+                            font=('TkDefaultFont', FONT_SIZE))
     exit_button.pack(side='left', padx=(8, 0))
 
     gui_main.context = []
