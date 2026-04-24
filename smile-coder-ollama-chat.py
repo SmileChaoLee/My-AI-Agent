@@ -382,14 +382,14 @@ def process_gui_request(user_input, request_parent, status_label,
             end_time = time.time()    
             debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
-            if not cancel_event.is_set():
-                add_to_context(user_input, response)
+            if not cancel_event.is_set():            
                 print_msg(f'\nAgent response:\n{response}')                
         except Exception as exc:
             if not cancel_event.is_set():
                 print_msg(f'\nError: {exc}')                
         finally:
             if not cancel_event.is_set():
+                add_to_context(user_input, response)
                 status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', FONT_SIZE, 'bold')))
             cancel_button.after(0, lambda: cancel_button.pack_forget())
 

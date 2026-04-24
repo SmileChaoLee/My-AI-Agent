@@ -31,9 +31,9 @@ from langchain.agents import create_agent
 
 # CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works
 # CODE_MODEL = 'qwen2.5-coder:7b' # not works
-CODE_MODEL = 'gpt-oss:20b'  # works
+# CODE_MODEL = 'gpt-oss:20b'  # works
 # CODE_MODEL = 'gemma4:26b' # works
-# CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works
+CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works
 
 FONT_SIZE = 12
 file_state = {'last_file_path': None}
@@ -372,14 +372,14 @@ def process_gui_request(user_input, request_parent, status_label,
             end_time = time.time()    
             debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
-            if not cancel_event.is_set():
-                add_to_context(user_input, response)
+            if not cancel_event.is_set():                
                 print_msg(f'\nAgent response:\n{response}')                
         except Exception as exc:
             if not cancel_event.is_set():
                 print_msg(f'\nError: {exc}')                
         finally:
             if not cancel_event.is_set():
+                add_to_context(user_input, response)
                 status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', FONT_SIZE, 'bold')))
             cancel_button.after(0, lambda: cancel_button.pack_forget())
 
