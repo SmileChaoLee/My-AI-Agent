@@ -120,7 +120,7 @@ def noop(input: str) -> str:
     return ""  
 
 # Define LangChain Tools
-tools = [read_file, sandbox_exec, noop]
+python_tools = [read_file, sandbox_exec, noop]
 
 
 def prompt_tkinter_install_help():
@@ -612,7 +612,7 @@ def agent_workflow(user_input, cancel_event=None):
     try:    
         # 4. Create the Agent        
         debug_log("agent_workflow: create_agent()")
-        agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
+        agent = create_agent(model=llm, tools=python_tools, system_prompt=system_prompt)
     except Exception as e:
         error_msg = f"agent_workflow.create_agent().Exception error: {str(e)}"
         debug_log(f"agent_workflow.create_agent.Exception")
