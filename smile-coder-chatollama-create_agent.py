@@ -31,6 +31,7 @@ from langchain.agents import create_agent
 
 CODE_MODEL = 'gpt-oss:20b'    # works
 # CODE_MODEL = 'gemma4:26b'     # works
+# CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works
 
 FONT_SIZE = 12
 file_state = {'last_file_path': None}
@@ -39,13 +40,14 @@ context = []
 gui_output_widget = None
 IS_DEBUG = True
 
-system_prompt0 = """
+system_prompt = """
 You are a software developer who is good at coding, debugging,
 analyzing computer language code, and reading files that are written
 in one computer language. 
 """
 
-system_prompt = (
+# 'mdq100/qwen3.5-coder:35b' does not works on this one
+system_prompt0 = (
     "You are a software developer who is good at coding, debugging, and analyzeing using the provided tools. "
     "Solve problems by interleaving Thought, Action, and Observation. "
     "You do not have to follow sequence of the available tools if some tools are not needed. "

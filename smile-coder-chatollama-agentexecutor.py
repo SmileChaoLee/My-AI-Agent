@@ -31,11 +31,9 @@ from langchain_classic import hub # works
 from langchain_core.tools import tool
 from langchain_classic.agents import AgentExecutor, create_react_agent
 
-# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # works
-# CODE_MODEL = 'qwen2.5-coder:7b' # works, not works sometimes
 # CODE_MODEL = 'gpt-oss:20b'  # not works
-# CODE_MODEL = 'gemma4:26b' # works
-CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works, not works sometimes
+# CODE_MODEL = 'gemma4:26b' # works but now well
+CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works
 
 FONT_SIZE = 12
 file_state = {'last_file_path': None}
@@ -46,8 +44,6 @@ IS_DEBUG = True
 
 # LangChain expects messages in a specific format. We build a list of ChatMessage objects.
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-# Do not use this one, system_message0
-# because the LLM will the steps whatever the user might input
 system_messages = [
     SystemMessage(content=(
         "You are a software developer who is good at coding, debugging, and analyzeing using the provided tools. "
@@ -56,9 +52,9 @@ system_messages = [
         "Just finish the job if no more actions have to be done. "
         "Do not repeat actions unless it is necessary. "
         "If the questions are not related to code or the Available Tools mentioned below, just answer the general question. "        
-        "When using tool, read_file, the exact file path that is given must be used as the Input. "
+        "When using tool, help_read_file, the exact file path that is given must be used as the Input. "
         "Available Tools: \n"
-        "- read_file: Read content of a file. Input: filename string only.\n"
+        "- help_read_file: Read content of a file. Input: filename string only.\n"
         "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"        
         "Format: \n"
         "Thought: [your reasoning]\n"
@@ -66,6 +62,16 @@ system_messages = [
         "Observation: [result from tool]\n"
         "... (repeat until solved)\n"
         "Answer: [your final conclusion]"
+    ))
+]
+
+system_messages0 = [
+    SystemMessage(content=(
+        """
+        You are a software developer who is good at coding, debugging,
+        analyzing computer language code, and reading files that are written
+        in one computer language. 
+        """
     ))
 ]
 
@@ -126,10 +132,10 @@ def python_repl(code: str) -> str:
     finally:
         sys.stdout = old_stdout    
 
-@tool("read_file")
-def read_file(path_input: str) -> str:
+@tool("help_read_file")
+def help_read_file(path_input: str) -> str:
     """Reads a file using absolute or relative paths."""
-    debug_log(f"read_file().path_input = {path_input}")
+    debug_log(f"help_read_file().path_input = {path_input}")
     # Strip quotes/backticks the LLM might add
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
@@ -142,7 +148,7 @@ def noop(input: str) -> str:
     return ""  
 
 # Define LangChain Tools
-python_tools = [read_file, sandbox_exec]
+python_tools = [help_read_file, sandbox_exec]
 
 
 def prompt_tkinter_install_help():

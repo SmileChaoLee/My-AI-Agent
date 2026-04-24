@@ -39,21 +39,6 @@ context = []
 gui_output_widget = None
 IS_DEBUG = True
 
-system_messages0 = [
-    {'role': 'system', 'content': (
-        "You are a coding and debugging expert using the provided tools."
-        "Solve problems by interleaving Thought, Action, and Observation. "
-        "Available Tools: \n"
-        "- read_file: Read content of a file. Input: filename string only.\n"
-        "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"
-        "Format: \n"
-        "Thought: [your reasoning]\n"
-        "Action: [tool_name]: [input]\n"
-        "Observation: [result from tool]\n"
-        "... (repeat until solved)\n"
-        "Answer: [your final conclusion]"
-    )},
-]
 
 system_messages = [
     {'role': 'system', 'content': (
@@ -121,17 +106,17 @@ def python_repl(code: str) -> str:
     finally:
         sys.stdout = old_stdout    
 
-def read_file(path_input: str) -> str:
+def help_read_file(path_input: str) -> str:
     """Reads a file using absolute or relative paths."""
-    debug_log(f"read_file().path_input = {path_input}")
+    debug_log(f"help_read_file().path_input = {path_input}")
     # Strip quotes/backticks the LLM might add
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
     return read_file_content(target_path)    
 
-AVAILABLE_TOOLS = {"python_repl": python_repl, "sandbox_exec": sandbox_exec, "read_file": read_file}
-python_tools=[read_file, sandbox_exec] # native tool support in .chat() with function calling
+AVAILABLE_TOOLS = {"python_repl": python_repl, "sandbox_exec": sandbox_exec, "help_read_file": help_read_file}
+python_tools=[help_read_file, sandbox_exec] # native tool support in .chat() with function calling
 
 def prompt_tkinter_install_help():
     if tk is not None:
