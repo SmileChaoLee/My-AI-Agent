@@ -120,7 +120,7 @@ def noop(input: str) -> str:
     return ""  
 
 # Define LangChain Tools
-python_tools = [read_file, sandbox_exec, noop]
+python_tools = [read_file, sandbox_exec]
 
 
 def prompt_tkinter_install_help():
