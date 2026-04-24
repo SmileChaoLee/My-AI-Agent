@@ -29,11 +29,8 @@ from langchain_ollama import ChatOllama
 from langchain_core.tools import tool
 from langchain.agents import create_agent
 
-# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works
-# CODE_MODEL = 'qwen2.5-coder:7b' # not works
-# CODE_MODEL = 'gpt-oss:20b'  # works
-# CODE_MODEL = 'gemma4:26b' # works
-CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works
+CODE_MODEL = 'gpt-oss:20b'    # works
+# CODE_MODEL = 'gemma4:26b'     # works
 
 FONT_SIZE = 12
 file_state = {'last_file_path': None}
@@ -42,11 +39,31 @@ context = []
 gui_output_widget = None
 IS_DEBUG = True
 
-system_prompt = """
+system_prompt0 = """
 You are a software developer who is good at coding, debugging,
 analyzing computer language code, and reading files that are written
 in one computer language. 
 """
+
+system_prompt = (
+    "You are a software developer who is good at coding, debugging, and analyzeing using the provided tools. "
+    "Solve problems by interleaving Thought, Action, and Observation. "
+    "You do not have to follow sequence of the available tools if some tools are not needed. "
+    "Just finish the job if no more actions have to be done. "
+    "Do not repeat actions unless it is necessary. "
+    "If the questions are not related to code or the Available Tools mentioned below, just answer the general question. "        
+    "When using tool, help_read_file, the exact file path that is given must be used as the Input. "
+    "Available Tools: \n"
+    "- help_read_file: Read content of a file. Input: filename string only.\n"
+    "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"        
+    "Format: \n"
+    "Thought: [your reasoning]\n"
+    "Action: [tool_name]: [input]\n"
+    "Observation: [result from tool]\n"
+    "... (repeat until solved)\n"
+    "Answer: [your final conclusion]"
+)
+
 
 def print_msg(message):    
     global gui_output_widget
@@ -104,10 +121,10 @@ def python_repl(code: str) -> str:
     finally:
         sys.stdout = old_stdout    
 
-@tool("read_file")
-def read_file(path_input: str) -> str:
+@tool("help_read_file")
+def help_read_file(path_input: str) -> str:
     """Reads a file using absolute or relative paths."""
-    debug_log(f"read_file().path_input = {path_input}")
+    debug_log(f"help_read_file().path_input = {path_input}")
     # Strip quotes/backticks the LLM might add
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
@@ -120,7 +137,7 @@ def noop(input: str) -> str:
     return ""  
 
 # Define LangChain Tools
-python_tools = [read_file, sandbox_exec]
+python_tools = [help_read_file, sandbox_exec]
 
 
 def prompt_tkinter_install_help():
