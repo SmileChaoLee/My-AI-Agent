@@ -26,13 +26,62 @@ except ImportError:
     PromptSession = None
     KeyBindings = None
 
-# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works well on calling tools, some times works
-# CODE_MODEL = 'qwen2.5-coder:7b' # not works on calling tools
-CODE_MODEL = 'gpt-oss:20b'  # works on calling tools
-# CODE_MODEL = 'gemma4:26b' # works on calling tools
-# CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # not works in this codebase
+# CODE_MODEL = 'qwen2.5-coder:32b-instruct-q3_K_M'  # not works
+# CODE_MODEL = 'qwen2.5-coder:7b' # not works
+# CODE_MODEL = 'gpt-oss:20b'  # works
+# CODE_MODEL = 'gemma4:26b' # works
+CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works
 
 FONT_SIZE = 12
+file_state = {'last_file_path': None}
+context = []
+# GUI log widget reference; set in gui_main().
+gui_output_widget = None
+IS_DEBUG = True
+
+system_messages0 = [
+    {'role': 'system', 'content': (
+        "You are a coding and debugging expert using the provided tools."
+        "Solve problems by interleaving Thought, Action, and Observation. "
+        "Available Tools: \n"
+        "- read_file: Read content of a file. Input: filename string only.\n"
+        "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"
+        "Format: \n"
+        "Thought: [your reasoning]\n"
+        "Action: [tool_name]: [input]\n"
+        "Observation: [result from tool]\n"
+        "... (repeat until solved)\n"
+        "Answer: [your final conclusion]"
+    )},
+]
+
+system_messages = [
+    {'role': 'system', 'content': (
+        """
+        You are a software developer who is good at coding, debugging,
+        analyzing computer language code, and reading files that are written
+        in one computer language. 
+        """
+    )},
+]
+
+
+
+def print_msg(message):    
+    global gui_output_widget
+    if gui_output_widget is not None:
+        try:
+            gui_output_widget.after(0, lambda: append_output_text(gui_output_widget, message))
+        except Exception:
+            append_output_text(gui_output_widget, message)
+    else:
+        print(message)
+
+
+def debug_log(message):
+    if IS_DEBUG:
+        print_msg(f"DEBUG: {message}")    
+
 
 # --- TOOLS ---
 def sandbox_exec(code: str) -> str:
@@ -40,7 +89,7 @@ def sandbox_exec(code: str) -> str:
     Cleans markdown and execute *code* in a fresh global namespace.
     Returns the printed output or an error string.
     """
-    debug_log(f"DEBUG.sandbox_exec()")
+    debug_log("sandbox_exec()")
     clean = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)
     old_stdout = sys.stdout
     sys.stdout = StringIO()
@@ -58,7 +107,7 @@ def python_repl(code: str) -> str:
     Cleans markdown and executes Python code.
     This function might modify the original code.
     """
-    debug_log(f"DEBUG.python_repl()")
+    debug_log("python_repl()")
     # Remove markdown backticks and language tags
     clean_code = re.sub(r'^```python\n|^```\n|```$', '', code.strip(), flags=re.MULTILINE)    
     old_stdout = sys.stdout
@@ -74,7 +123,7 @@ def python_repl(code: str) -> str:
 
 def read_file(path_input: str) -> str:
     """Reads a file using absolute or relative paths."""
-    debug_log(f"DEBUG.read_file: path_input = {path_input}")
+    debug_log(f"read_file().path_input = {path_input}")
     # Strip quotes/backticks the LLM might add
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
@@ -82,9 +131,7 @@ def read_file(path_input: str) -> str:
     return read_file_content(target_path)    
 
 AVAILABLE_TOOLS = {"python_repl": python_repl, "sandbox_exec": sandbox_exec, "read_file": read_file}
-
-# GUI log widget reference; set in gui_main().
-gui_output_widget = None
+python_tools=[read_file, sandbox_exec] # native tool support in .chat() with function calling
 
 def prompt_tkinter_install_help():
     if tk is not None:
@@ -164,22 +211,54 @@ def read_file_content(path):
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
-        print(f"Error: file not found: {path}")
+        print_msg(f"Error: file not found: {path}")
         return None
     except PermissionError:
-        print(f"Error: permission denied for file: {path}")
+        print_msg(f"Error: permission denied for file: {path}")
         return None
     except Exception as exc:
-        print(f"Error reading file {path}: {exc}")
+        print_msg(f"Error reading file {path}: {exc}")
         return None
+
+
+def is_related_to_file(user_input, file_path):
+    return file_path or is_display_request(user_input)
+
+    
+def reform_user_input(user_input):
+    local_input = user_input
+    temp_file_path = extract_file_path(local_input)
+    debug_log(f"process_gui_request: file_path: {temp_file_path}")
+    if not temp_file_path:
+        temp_file_path = file_state.get('last_file_path')
+        debug_log(f"reform_user_input: Using last file path: {temp_file_path}")            
+    file_content = None                
+    if temp_file_path:
+        debug_log(f"reform_user_input: last file path before update: {file_state.get('last_file_path')}")
+        debug_log(f"reform_user_input: Reading file: {temp_file_path}")
+        file_state['last_file_path'] = temp_file_path
+        file_content = read_file_content(temp_file_path)
+        if file_content is None:                    
+            print_msg(f"Could not read the requested file: {temp_file_path}")
+        else:
+            debug_log(f"process_gui_request: file_content is not None")                                                
+        local_input = format_user_input_for_read(
+            local_input,
+            temp_file_path,
+            file_content
+        )            
+    else:                    
+        print_msg("No file path detected in your input. Please include one or open a file first.")
+        
+    return local_input
 
 
 def format_user_input_for_read(user_input, file_path=None, file_content=None):
     if file_path and file_content:
         return (
-            f"File path: \n{file_path}"
-            f"\n\nFile content:\n{file_content}"
             f"\n\nUser question:\n{user_input}"
+            f"File path: \n{file_path}"
+            # f"\n\nFile content:\n{file_content}"
         )
     else:
         return user_input
@@ -222,26 +301,15 @@ def append_output_text(widget, text):
     widget.configure(state='disabled')
 
 
-def debug_log(message):
-    global gui_output_widget
-    if gui_output_widget is not None:
-        try:
-            gui_output_widget.after(0, lambda: append_output_text(gui_output_widget, message))
-        except Exception:
-            append_output_text(gui_output_widget, message)
-    else:
-        print(message)
-
-
 def cancel_request(cancel_event, status_label, cancel_button):
     cancel_event.set()
     status_label.config(text='Cancelled', fg='orange', font=('TkDefaultFont', FONT_SIZE, 'bold'))
     cancel_button.pack_forget()
 
 
-def process_gui_request(user_input, context, request_parent, status_label,
-                        cancel_button, cancel_event, file_state, history_canvas=None):
-    debug_log(f"DEBUG.process_gui_request: user_input: {user_input}")
+def process_gui_request(user_input, request_parent, status_label,
+                        cancel_button, cancel_event, history_canvas=None):
+    debug_log(f"process_gui_request: user_input: {user_input}")
     if not user_input.strip():
         status_label.config(text='Please enter a request.')
         return
@@ -285,6 +353,7 @@ def process_gui_request(user_input, context, request_parent, status_label,
             history_canvas.after(50, lambda: history_canvas.yview_moveto(1.0))
 
     append_response_text(f">>> {user_input}")
+    append_response_text(">>> Processing your request, please wait...")
     if history_canvas is not None:
         history_canvas.after(100, lambda: history_canvas.yview_moveto(1.0))
     status_label.config(text='Processing...', fg='red', font=('TkDefaultFont', FONT_SIZE, 'bold'))
@@ -296,54 +365,29 @@ def process_gui_request(user_input, context, request_parent, status_label,
     gui_output_widget = request_output_widget
 
     def worker():
-        try:        
-            local_input = user_input          
-            file_path = extract_file_path(local_input)
-            debug_log(f"DEBUG.process_gui_request: file_path: {file_path}")
-            if not file_path:
-                file_path = file_state.get('last_file_path')
-                if file_path and is_display_request(local_input):
-                    debug_log(f"DEBUG.process_gui_request: Using last file path: {file_path}")
-
-            should_display = False
-            file_content = None
-            if file_path:
-                debug_log(f"DEBUG.process_gui_request: last file path before update: {file_state.get('last_file_path')}")
-                debug_log(f"DEBUG.process_gui_request: Reading file: {file_path}")
-                file_state['last_file_path'] = file_path
-                file_content = read_file_content(file_path)
-                if file_content is None:
-                    request_output_widget.after(0, lambda: append_response_text(f'Could not read the requested file: {file_path}'))
-                    return
-                debug_log(f"DEBUG.process_gui_request: file_content is not None")                
-                should_display = is_display_request(local_input)               
-                #local_input = format_user_input_for_read(
-                #    user_input,
-                #    file_path,
-                #    file_content
-                #)
-                local_input = user_input
-            elif is_display_request(local_input):
-                request_output_widget.after(0, lambda: append_response_text('No file path detected in your input. Please include one or open a file first.'))
-                return
+        try:     
+            #if is_related_to_file(local_input, file_path):
+            local_input = reform_user_input(user_input)
 
             # No need to display the file content here because the LLM will read the file content
             # in agent_workflow and we do not want to show the file content twice in the GUI
             # if should_display and file_content is not None:
-                # file_frame = create_file_content_frame(content_pane, file_path, file_content)
-                # content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane         
-
+            # file_frame = create_file_content_frame(content_pane, file_path, file_content)
+            # content_pane.add(file_frame, minsize=100, stretch="always") # Added as a resizable pane
+            
+            debug_log("process_gui_request: time.time()")
             start_time = time.time()
-            response = agent_workflow(local_input, context, cancel_event)
+            debug_log("process_gui_request: agent_workflow()")
+            response = agent_workflow(local_input, cancel_event)            
             end_time = time.time()    
-            debug_log(f"DEBUG.process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
+            debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
-            if not cancel_event.is_set():              
-                add_to_context(context, user_input, response)            
-                request_output_widget.after(0, lambda: append_response_text(f'Agent response:\n{response}'))
+            if not cancel_event.is_set():
+                add_to_context(user_input, response)
+                print_msg(f'\nAgent response:\n{response}')                
         except Exception as exc:
             if not cancel_event.is_set():
-                request_output_widget.after(0, lambda: append_response_text(f'Error: {exc}'))
+                print_msg(f'\nError: {exc}')                
         finally:
             if not cancel_event.is_set():
                 status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', FONT_SIZE, 'bold')))
@@ -376,7 +420,7 @@ def gui_main():
     y = (root.winfo_screenheight() // 2) - (height // 2)
     root.geometry(f"{width}x{height}+{x}+{y}")
     root.geometry('1000x800')  # Optional: keep original size if needed
-    
+
     label = tk.Label(root, text='Enter your request and click Submit:',
                      font=('TkDefaultFont', FONT_SIZE, 'bold'))
 
@@ -419,8 +463,6 @@ def gui_main():
     output_label = tk.Label(history_frame, text='Output:', font=('TkDefaultFont', FONT_SIZE, 'bold'))
     output_label.pack(anchor='w')
 
-    file_state = {'last_file_path': None}
-
     def clear_output():
         for child in history_frame.winfo_children():
             child.destroy()
@@ -440,7 +482,7 @@ def gui_main():
     def on_submit(event=None):
         text = input_widget.get('1.0', 'end').strip()
         if text:
-            process_gui_request(text, gui_main.context, history_frame, status_label, cancel_button, cancel_event, file_state, history_canvas)
+            process_gui_request(text, history_frame, status_label, cancel_button, cancel_event, history_canvas)
             input_widget.delete('1.0', 'end')
 
     def on_clear(event=None):
@@ -458,7 +500,7 @@ def gui_main():
     status_label.pack(side='left')
 
     cancel_button = tk.Button(processing_frame, text='Cancel', command=lambda: None,
-                              font=('TkDefaultFont', FONT_SIZE, 'bold'))
+                              font=('TkDefaultFont', FONT_SIZE))
     cancel_button.pack(side='left', padx=(8, 0))
     cancel_button.pack_forget()  # Hide initially
 
@@ -485,10 +527,9 @@ def gui_main():
     root.bind('<Control-q>', lambda event: root.destroy())
 
     exit_button = tk.Button(button_frame, text='Exit', command=root.destroy,
-                            font=('TkDefaultFont', FONT_SIZE))
+                            font=('TkDefaultFont', FONT_SIZE))    
     exit_button.pack(side='left', padx=(8, 0))
 
-    gui_main.context = []
     root.mainloop()
 
 
@@ -502,7 +543,7 @@ def get_multiline_input(prompt_text='-> '):
             if not lines:
                 line = input(prompt_text)
             else:
-                print("More? (or Enter to submit, or type 'exit' to quit)")
+                print_msg("More? (or Enter to submit, or type 'exit' to quit)")
                 line = input('-> ')
 
             if line.lower() == "exit":
@@ -530,40 +571,27 @@ def get_multiline_input(prompt_text='-> '):
         return ''
 
 
-def add_to_context(context_list, user_input, response, max_history=10):
+def add_to_context(user_input, response, max_history=10):
     """Appends the latest interaction to the history list."""
-    context_list.append({
+    context.append({
         'user_input': user_input,
         'response': response,
     })
-    if len(context_list) > max_history:
-        # context_list.pop(0)  # Remove the oldest entry to maintain the max history size  
-        del context_list[0]  # Alternative way to remove the oldest entry
+    if len(context) > max_history:
+        # context.pop(0)  # Remove the oldest entry to maintain the max history size  
+        del context[0]  # Alternative way to remove the oldest entry
 
 
 # --- AGENT ENGINE ---
-def agent_workflow(user_input, context=[], cancel_event=None):
+def agent_workflow(user_input, cancel_event=None):
     if not user_input.strip():
-        debug_log(f"DEBUG.agent_workflow: No user input provided.")
-    
+        debug_log("agent_workflow.No user input provided.")
+
+    debug_log("agent_workflow.Setting messages with system prompt and history")    
     # 1. Build the messages list
     # Setup the ReAct system prompt
-    messages = [
-        {'role': 'system', 'content': (
-            "You are a coding and debugging expert using the provided tools."
-            "Solve problems by interleaving Thought, Action, and Observation. "
-            "Available Tools: \n"
-            "- read_file: Read content of a file. Input: filename string only.\n"
-            "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"
-            "Format: \n"
-            "Thought: [your reasoning]\n"
-            "Action: [tool_name]: [input]\n"
-            "Observation: [result from tool]\n"
-            "... (repeat until solved)\n"
-            "Answer: [your final conclusion]"
-        )},
-    ]
-
+    messages = []
+    messages.append(system_messages)
     # 2. Add context to the conversation (if you want the model to see history)
     for entry in context:
         messages.append({'role': 'user', 'content': entry.get('user_input', '')})
@@ -571,11 +599,12 @@ def agent_workflow(user_input, context=[], cancel_event=None):
 
     # 3. Add the current user input
     messages.append({'role': 'user', 'content': user_input})
+
+    full_agent_log = ""
     
-    full_agent_log = ""    
     # 4. ReAct Loop (Limit to 5 turns to prevent infinite loops)
     for turn in range(5):
-        debug_log(f"DEBUG.agent_workflow: turn = {turn}")
+        debug_log(f"agent_workflow.turn = {turn}")
         if cancel_event and cancel_event.is_set():
             break
         
@@ -591,7 +620,8 @@ def agent_workflow(user_input, context=[], cancel_event=None):
                     'num_ctx': 8192,
                     'stop': ["Observation:", "Observation"] # Force the model to stop here
                 },
-                tools=[read_file, sandbox_exec], # native tool support in .chat() with function calling                
+                # tools=[read_file, sandbox_exec]   # work
+                tools=python_tools  # work
             )
             if cancel_event and cancel_event.is_set():
                 full_agent_log += '\n[CANCELLED]'
@@ -601,18 +631,18 @@ def agent_workflow(user_input, context=[], cancel_event=None):
             if 'message' in response and 'content' in response['message']:                
                 message_content = response['message']['content']
                 has_letters = bool(re.search(r'[a-zA-Z]', message_content))
-                debug_log(f"DEBUG.agent_workflow.has_letters = {has_letters}.")            
+                debug_log(f"agent_workflow.has_letters = {has_letters}.")            
                 has_digits = bool(re.search(r'\d', message_content))
-                debug_log(f"DEBUG.agent_workflow.has_digits  = {has_digits}.")                
+                debug_log(f"agent_workflow.has_digits  = {has_digits}.")                
                 if has_letters or has_digits:
-                    debug_log(f"DEBUG.agent_workflow.message_content has content.")
+                    debug_log(f"agent_workflow.message_content has content.")
                     full_agent_log += f"\n{message_content}\n"                    
                     messages.append({'role': 'assistant', 'content': message_content})                                        
             # Handle tool calls (they arrive in the 'tool_calls' field)
             if 'message' in response and 'tool_calls' in response['message']:
                 # We store these to process after the stream finishes
                 tool_calls = response['message']['tool_calls']
-                debug_log(f"DEBUG.agent_workflow.has tool_calls.")
+                debug_log(f"agent_workflow.has tool_calls.")
 
             # The following login is for the native call in .chat() with tools
             # Check if the model wants to call tools
@@ -626,7 +656,7 @@ def agent_workflow(user_input, context=[], cancel_event=None):
                 # Handle the tool calls
                 for call in tool_calls:
                     tool_name = call.function.name
-                    debug_log(f"DEBUG.agent_workflow.for call: tool_name = {tool_name}")
+                    debug_log(f"agent_workflow.for call.tool_name = {tool_name}")
                     tool_args = call.function.arguments # This is a dictionary                
                     if tool_name in AVAILABLE_TOOLS:
                         # Execute the tool
@@ -637,108 +667,86 @@ def agent_workflow(user_input, context=[], cancel_event=None):
                             'content': str(observation),
                             'name': tool_name
                         })
-                        full_agent_log += f"\n[Tool Observation ({tool_name})] = \n{observation}\n"
+                        # full_agent_log += f"\n[Tool Observation ({tool_name})] = \n{observation}\n"                        
+                        if observation:
+                            debug_log(f"agent_workflow.{tool_name}.[Tool.Observation.has content]")
+                        else:
+                            debug_log(f"agent_workflow.{tool_name}.[Tool.Observation.no content]")
             else:
                 # messages.append({'role': 'assistant', 'content': message_content})
                 # The following logic is for backward compatibility                
                 # and instead outputs Action: ... in text
                 # Check if we are done
                 if "Answer:" in message_content:
-                    debug_log(f"DEBUG.agent_workflow: Answer found in response.")
+                    debug_log(f"agent_workflow.'Answer:' found in response.")
                     break   # exit the loop ( for _ in range(5) )            
                 # Tool Execution Logic
                 action_match = re.search(r"Action: (\w+): (.*)", message_content, re.DOTALL)
-                debug_log(f"DEBUG.agent_workflow: action_match: {action_match}")
+                debug_log(f"agent_workflow.action_match = {action_match}")
                 if action_match:
                     tool_name, tool_input = action_match.groups()
-                    debug_log(f"DEBUG.agent_workflow.action_match: tool_name = {tool_name}, tool_input = {tool_input}")
+                    debug_log(f"agent_workflow.action_match: tool_name = {tool_name}, tool_input = {tool_input}")
                     # Use your existing TOOLS dictionary
                     # observation = AVAILABLE_TOOLS.get(tool_name, lambda x: "Tool not found")(tool_input)
                     if tool_name in AVAILABLE_TOOLS:
-                        observation = AVAILABLE_TOOLS.get(tool_name)(tool_input)                                                
+                        observation = AVAILABLE_TOOLS.get(tool_name)(tool_input)
                         obs_text = f"Observation: {observation}"
-                        full_agent_log += f"\n{obs_text}\n"
-                        messages.append({'role': 'user', 'content': obs_text})                
+                        # full_agent_log += f"\n{obs_text}\n"                        
+                        messages.append({'role': 'user', 'content': obs_text})
+                        if observation:
+                            debug_log(f"agent_workflow.[action_match.{tool_name}.Observation has content]")
+                        else:
+                            debug_log(f"agent_workflow.[action_match.{tool_name}.Observation no content]")
                 else:
                     # If the model didn't provide an Action or Answer, stop or prompt it
-                    break   # exit the loop ( for _ in range(5) )        
-                    # continue
-
+                    break   # exit the loop ( for _ in range(5) )                            
         except Exception as e:                        
             error_msg = f"Error: {e}"
-            debug_log(f"DEBUG.agent_workflow.Exception: {error_msg}")
+            debug_log(f"agent_workflow.Exception: {error_msg}")
             full_agent_log += f"\n{error_msg}\n"
-        
+
     return full_agent_log
 
 
 def main():
-    context = []
-    m_file_path = None
     justEntered = True
     while True:
         if justEntered:
-            print("\nHow can I help you? (or Enter to quit):")        
+            print_msg("\nHow can I help you? (or Enter to quit):")        
             justEntered = False
         else:
-            print("\nWhat else can I assist you with? (or Enter to quit):")
-
+            print_msg("\nWhat else can I assist you with? (or Enter to quit):")
         if PromptSession is not None:
-            print("(Use Ctrl+O for a newline, Enter to submit.)")
-
+            print_msg("(Use Ctrl+O for a newline, Enter to submit.)")
         user_input = get_multiline_input('-> ')
+        
         if user_input == EXIT_COMMAND:
-            print("Goodbye!")
+            print_msg("Goodbye!")
+            return
+        
+        debug_log(f"user_input: {user_input}")
+        if not user_input.strip():
+            print_msg("Goodbye!")
             return
 
-        print(f"DEBUG: user_input: {user_input}")
-
-        if not user_input.strip():
-            print("Goodbye!")
-            break
-
-        file_path = extract_file_path(user_input)
-        if file_path:
-            m_file_path = file_path
-
-            print(f"\nDEBUG: m_file_path: {m_file_path}")
-            print(f"DEBUG: Reading file: {file_path}")
-            
-            file_content = read_file_content(file_path)
-            if file_content is not None:
-                # do not show the file content here because the LLM will read the file content
-                # in agent_workflow and we do not want to show the file content twice in the CLI
-                #if is_display_request(user_input):
-                #    print(f"\nContent of {file_path}:")                                
-                #    print(f"File content: \n{file_content}")
-                #user_input = format_user_input_for_read(
-                #    user_input,
-                #    file_path,
-                #    file_content
-                #)
-                print("file_content is not None.")
-            else:
-                print("Could not read the requested file. Try again.")
-                continue
-        
-        print("\nProcessing your request, please wait...")        
+        # file_path = extract_file_path(user_input)
+        # debug_log(f"main.file_path: {file_path}")  
+        print_msg("\nProcessing your request, please wait...")        
         start_time = time.time()       
-        
-        response = agent_workflow(user_input, context)
-        
+        response = agent_workflow(user_input)
         end_time = time.time()    
-        print(f"\nTime taken for response: {end_time - start_time:.2f} seconds")
+        print_msg(f"\nTime taken for response: {end_time - start_time:.2f} seconds")
 
         if response is not None:
-            print(f"\nAgent response:\n {response}")
+            print_msg(f"\nAgent response:\n {response}")
         else:
-            print("Failed to get a response from the Agent.")        
+            print_msg("Failed to get a response from the Agent.")        
     
-        add_to_context(context, user_input, response)
+        add_to_context(user_input, response)
             
 if __name__ == "__main__":
     try:
         gui_main()
     except Exception as e:
-        print(f"GUI unavailable, falling back to CLI: {e}")
+        print_msg(f"GUI unavailable, falling back to CLI: {e}")
         main()
