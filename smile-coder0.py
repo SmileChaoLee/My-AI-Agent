@@ -131,7 +131,7 @@ def read_file(path_input: str) -> str:
     return read_file_content(target_path)    
 
 AVAILABLE_TOOLS = {"python_repl": python_repl, "sandbox_exec": sandbox_exec, "read_file": read_file}
-python_tools=[read_file, sandbox_exec], # native tool support in .chat() with function calling
+python_tools=[read_file, sandbox_exec] # native tool support in .chat() with function calling
 
 def prompt_tkinter_install_help():
     if tk is not None:
@@ -620,7 +620,8 @@ def agent_workflow(user_input, cancel_event=None):
                     'num_ctx': 8192,
                     'stop': ["Observation:", "Observation"] # Force the model to stop here
                 },
-                tools=python_tools, # native tool support in .chat() with function calling                
+                # tools=[read_file, sandbox_exec]   # work
+                tools=python_tools  # work
             )
             if cancel_event and cancel_event.is_set():
                 full_agent_log += '\n[CANCELLED]'
