@@ -392,7 +392,7 @@ def process_gui_request(user_input, request_parent, status_label,
             debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
             if not cancel_event.is_set():                
-                print_msg(f'\nAgent response:\n{response}')                
+                print_msg(f'\nAgent response:\n\n{response}')                
         except Exception as exc:
             if not cancel_event.is_set():
                 print_msg(f'\nError: {exc}')                
@@ -688,7 +688,7 @@ def main():
         print_msg(f"\nTime taken for response: {end_time - start_time:.2f} seconds")
 
         if response is not None:
-            print_msg(f"\nAgent response:\n {response}")
+            print_msg(f"\nAgent response:\n\n {response}")
         else:
             print_msg("Failed to get a response from the Agent.")        
     
