@@ -352,7 +352,7 @@ def process_gui_request(user_input, request_parent, status_label,
     def worker():
         try:     
             #if is_related_to_file(local_input, file_path):
-            local_input = reform_user_input(user_input)
+            reform_user_input(user_input)
 
             # No need to display the file content here because the LLM will read the file content
             # in agent_workflow and we do not want to show the file content twice in the GUI
@@ -363,7 +363,7 @@ def process_gui_request(user_input, request_parent, status_label,
             debug_log("process_gui_request: time.time()")
             start_time = time.time()
             debug_log("process_gui_request: agent_workflow()")
-            response = agent_workflow(local_input, cancel_event)            
+            response = agent_workflow(user_input, cancel_event)            
             end_time = time.time()    
             debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
