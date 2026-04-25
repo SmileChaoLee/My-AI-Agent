@@ -31,8 +31,11 @@ from langchain_classic import hub # works
 from langchain_core.tools import tool
 from langchain_classic.agents import AgentExecutor, create_react_agent
 
+# LangChain expects messages in a specific format. We build a list of ChatMessage objects.
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
 # CODE_MODEL = 'gpt-oss:20b'  # not works
-# CODE_MODEL = 'gemma4:26b' # works but now well
+# CODE_MODEL = 'gemma4:26b' # works
 CODE_MODEL = 'mdq100/qwen3.5-coder:35b'  # works
 
 FONT_SIZE = 12
@@ -42,38 +45,35 @@ context = []
 gui_output_widget = None
 IS_DEBUG = True
 
-# LangChain expects messages in a specific format. We build a list of ChatMessage objects.
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-system_messages = [
-    SystemMessage(content=(
-        "You are a software developer who is good at coding, debugging, and analyzeing using the provided tools. "
-        "Solve problems by interleaving Thought, Action, and Observation. "
-        "You do not have to follow sequence of the available tools if some tools are not needed. "
-        "Just finish the job if no more actions have to be done. "
-        "Do not repeat actions unless it is necessary. "
-        "If the questions are not related to code or the Available Tools mentioned below, just answer the general question. "        
-        "When using tool, help_read_file, the exact file path that is given must be used as the Input. "
-        "Available Tools: \n"
-        "- help_read_file: Read content of a file. Input: filename string only.\n"
-        "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"        
-        "Format: \n"
-        "Thought: [your reasoning]\n"
-        "Action: [tool_name]: [input]\n"
-        "Observation: [result from tool]\n"
-        "... (repeat until solved)\n"
-        "Answer: [your final conclusion]"
-    ))
-]
+system_prompt0 = (
+    "You are a software developer who is good at coding, debugging, and analyzeing using the provided tools. "
+    "Solve problems by interleaving Thought, Action, and Observation. "
+    "You do not have to follow sequence of the available tools if some tools are not needed. "
+    "Just finish the job if no more actions have to be done. "
+    "Do not repeat actions unless it is necessary. "
+    "If the questions are not related to code or the Available Tools mentioned below, just answer the general question. "        
+    "When using tool, help_read_file, the exact file path that is given must be used as the Input. "
+    "Finish the works when messages include 'Answer:'. "
+    "Available Tools: \n"
+    "- help_read_file: Read content of a file. Input: filename string only.\n"
+    "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"        
+    "Format: \n"
+    "Thought: [your reasoning]\n"
+    "Action: [tool_name]: [input]\n"
+    "Observation: [result from tool]\n"
+    "... repeat until meet 'Answer:' then return the final conclusion\n"
+    "Answer: [your final conclusion]"
+)
 
-system_messages0 = [
-    SystemMessage(content=(
-        """
-        You are a software developer who is good at coding, debugging,
-        analyzing computer language code, and reading files that are written
-        in one computer language. 
-        """
-    ))
-]
+system_prompt = (
+    "\n**IMPORTANT**: After each Thought, the model must output an Action line followed by an Observation line. No other text is allowed until the chain ends."
+    "\n**IMPORTANT**: If the user questions are not related to code or the Available Tools mentioned below, just answer the general question. "
+    "\n**IMPORTANT**: When using tool, help_read_file, the exact file path that is given must be used as the Input. "
+    "\n**IMPORTANT**: Do not repeat actions unless it is necessary. "    
+    "\nAvailable Tools: \n"
+    "- help_read_file: Read content of a file. Input: filename string only.\n"
+    "- sandbox_exec: Execute Python code. Input: pure python code.\n\n"    
+)
 
 
 def print_msg(message):    
@@ -385,7 +385,7 @@ def process_gui_request(user_input, request_parent, status_label,
     def worker():
         try:     
             #if is_related_to_file(local_input, file_path):
-            local_input = reform_user_input(user_input)
+            reform_user_input(user_input)
 
             # No need to display the file content here because the LLM will read the file content
             # in agent_workflow and we do not want to show the file content twice in the GUI
@@ -396,12 +396,12 @@ def process_gui_request(user_input, request_parent, status_label,
             debug_log("process_gui_request: time.time()")
             start_time = time.time()
             debug_log("process_gui_request: agent_workflow()")
-            response = agent_workflow(local_input, cancel_event)            
+            response = agent_workflow(user_input, cancel_event)            
             end_time = time.time()    
             debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
         
             if not cancel_event.is_set():                
-                print_msg(f'\nAgent response:\n{response}')                
+                print_msg(f'\nAgent response:\n\n{response}')                
         except Exception as exc:
             if not cancel_event.is_set():
                 print_msg(f'\nError: {exc}')                
@@ -612,7 +612,8 @@ def agent_workflow(user_input, cancel_event=None):
     debug_log("agent_workflow: Setting messages with system prompt and history")    
     # 1. Prepare the History (Context)
     # Add history
-    messages = system_messages
+    # messages = system_messages[:] # copy
+    messages = []
     for entry in context:
         messages.append(HumanMessage(content=entry.get('user_input', '')))
         messages.append(AIMessage(content=entry.get('response', '')))
@@ -628,7 +629,8 @@ def agent_workflow(user_input, cancel_event=None):
         num_ctx=8192,
         timeout=None,
         streaming=False,
-        stop=None
+        # stop=["\nObservation:"]
+        # stop=None
     )
     # debug_log(f"{llm.invoke('Hello, who are you?')}")
 
@@ -638,7 +640,9 @@ def agent_workflow(user_input, cancel_event=None):
         # 3. Create the Prompt
         # We use the ReAct prompt template from the hub
         debug_log("DEBUG.agent_workflow: hub.pull()")
-        prompt = hub.pull("hwchase17/react")            
+        prompt = hub.pull("hwchase17/react")
+        # Append a line that forces the model to follow the exact syntax
+        prompt += system_prompt
     except Exception as e:
         error_msg = f"agent_workflow.hub.pull().Exception: {str(e)}"
         debug_log(f"DEBUG.agent_workflow.hub.pull.Exception: {error_msg}")
@@ -662,13 +666,13 @@ def agent_workflow(user_input, cancel_event=None):
             tools=python_tools,
             verbose=True,
             handle_parsing_errors=True,
-            # max_iterations=10
+            max_iterations=10
         )        
-        debug_log("DEBUG.agent_workflow: agent_executor.invoke()")
-        # result = agent_executor.invoke(input = {"input": user_input})
+        debug_log("DEBUG.agent_workflow: agent_executor.invoke()")    
         full_prompt = "\n".join(msg.content for msg in messages)
-        result = agent_executor.invoke(input = {"input": full_prompt})
-        # result = agent_executor.invoke(input = {"input": user_input, "chat_history": messages})
+        # debug_log(f"agent_workflow.full_prompt = \n{full_prompt}")
+        result = agent_executor.invoke(input = {"input": full_prompt})        
+        # result = agent_executor.invoke(input = {"input": user_input})
         full_agent_log = result.get("output")
     except Exception as e:
         error_msg = f"agent_workflow.agent_executor.invoke().Exception: {str(e)}"
@@ -709,7 +713,7 @@ def main():
         print_msg(f"\nTime taken for response: {end_time - start_time:.2f} seconds")
 
         if response is not None:
-            print_msg(f"\nAgent response:\n {response}")
+            print_msg(f"\nAgent response:\n\n {response}")
         else:
             print_msg("Failed to get a response from the Agent.")        
     
