@@ -20,8 +20,8 @@ client = OpenAI(
 # 2️⃣  Verify your chosen free model. The recommended one is usually just the name,
 #     e.g. "openrouter/free". "openai/gpt-oss-20b:free" works, but if you run
 #     into a 404 you can fallback to the simpler alias below.
-# model = "openai/gpt-oss-20b:free"
-model = "openrouter/free"
+model = "openai/gpt-oss-20b:free"
+# model = "openrouter/free"
 
 try:
     completion = client.chat.completions.create(
