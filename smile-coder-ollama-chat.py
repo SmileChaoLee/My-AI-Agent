@@ -413,7 +413,7 @@ def gui_main():
 
     button_frame = tk.Frame(root)
 
-    shortcuts_label = tk.Label(root, text='Shortcuts: Ctrl+Enter = Submit, Ctrl+L = Clear, Ctrl+Q = Exit', anchor='w', fg='gray30', font=('TkDefaultFont', FONT_SIZE))
+    shortcuts_label = tk.Label(root, text='Shortcuts: Ctrl+O = Submit, Ctrl+L = Clear, Ctrl+Q = Exit', anchor='w', fg='gray30', font=('TkDefaultFont', FONT_SIZE))
 
     history_frame_container = tk.Frame(root)
     history_frame_container.pack(fill='both', padx=8, pady=(0, 8), expand=True)
@@ -506,10 +506,12 @@ def gui_main():
                              font=('TkDefaultFont', FONT_SIZE))
     clear_button.pack(side='left', padx=(8, 0))
 
-    root.bind('<Control-Return>', on_submit)
+    root.bind('<Control-o>', on_submit)
+    root.bind('<Control-O>', on_submit)
     root.bind('<Control-l>', on_clear)
     root.bind('<Control-L>', on_clear)
     root.bind('<Control-q>', lambda event: root.destroy())
+    root.bind('<Control-Q>', lambda event: root.destroy())
 
     exit_button = tk.Button(button_frame, text='Exit', command=root.destroy,
                             font=('TkDefaultFont', FONT_SIZE))    
@@ -521,16 +523,14 @@ def gui_main():
 EXIT_COMMAND = "__EXIT_COMMAND__"
 
 def get_multiline_input(prompt_text='-> '):
-    """Read multiline user input with Ctrl+O for new lines and Enter to submit."""
+    """Read multiline user input with Ctrl+O to submit."""
     if PromptSession is None or KeyBindings is None:
         lines = []
         while True:
             if not lines:
                 line = input(prompt_text)
             else:
-                print_msg("More? (or Enter to submit, or type 'exit' to quit)")
                 line = input('-> ')
-
             if line.lower() == "exit":
                 return EXIT_COMMAND
             if not line:
@@ -540,11 +540,11 @@ def get_multiline_input(prompt_text='-> '):
 
     kb = KeyBindings()
 
-    @kb.add('c-o')
+    @kb.add('enter')
     def _(event):
         event.current_buffer.insert_text('\n')
 
-    @kb.add('enter')
+    @kb.add('c-o')
     def _(event):
         buffer = event.current_buffer
         event.app.exit(result=buffer.text)
@@ -694,28 +694,19 @@ def agent_workflow(user_input, cancel_event=None):
 
 
 def main():
-    justEntered = True
     while True:
-        if justEntered:
-            print_msg("\nHow can I help you? (or Enter to quit):")        
-            justEntered = False
-        else:
-            print_msg("\nWhat else can I assist you with? (or Enter to quit):")
-        if PromptSession is not None:
-            print_msg("(Use Ctrl+O for a newline, Enter to submit.)")
+        print_msg("\nHow can I help you? ('Ctrl+O' to submit', 'exit'+'Ctrl+O' to quit):")
         user_input = get_multiline_input('-> ')
         
         if user_input == EXIT_COMMAND:
             print_msg("Goodbye!")
             return
         
-        debug_log(f"user_input: {user_input}")
-        if not user_input.strip():
+        # Check if input is empty or starts with 'EXIT' (case-insensitive)
+        if not user_input.strip() or user_input.strip().upper().startswith('EXIT'):
             print_msg("Goodbye!")
             return
 
-        # file_path = extract_file_path(user_input)
-        # debug_log(f"main.file_path: {file_path}")  
         print_msg("\nProcessing your request, please wait...")        
         start_time = time.time()       
         response = agent_workflow(user_input)
