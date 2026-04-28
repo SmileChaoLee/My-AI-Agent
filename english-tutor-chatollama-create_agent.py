@@ -137,13 +137,13 @@ def read_file_content(path):
 def check_file_path(user_input):
     local_input = user_input
     temp_file_path = extract_file_path(local_input)
-    debug_log(f"process_gui_request: file_path: {temp_file_path}")  
+    debug_log(f"check_file_path: file_path: {temp_file_path}")  
     if temp_file_path:          
         file_content = read_file_content(temp_file_path)
         if file_content is None:                    
             print_msg(f"Could not read the requested file: {temp_file_path}")
         else:
-            debug_log(f"process_gui_request: file_content is not None")        
+            debug_log(f"check_file_path: file_content is not None")        
 
 
 def create_file_content_frame(parent, path, content):

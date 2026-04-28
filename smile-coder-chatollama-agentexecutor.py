@@ -246,7 +246,7 @@ def is_related_to_file(user_input, file_path):
 def reform_user_input(user_input):
     local_input = user_input
     temp_file_path = extract_file_path(local_input)
-    debug_log(f"process_gui_request: file_path: {temp_file_path}")
+    debug_log(f"reform_user_input: file_path: {temp_file_path}")
     if not temp_file_path:
         temp_file_path = file_state.get('last_file_path')
         debug_log(f"reform_user_input: Using last file path: {temp_file_path}")            
@@ -259,7 +259,7 @@ def reform_user_input(user_input):
         if file_content is None:                    
             print_msg(f"Could not read the requested file: {temp_file_path}")
         else:
-            debug_log(f"process_gui_request: file_content is not None")                                                
+            debug_log(f"reform_user_input: file_content is not None")                                                
         local_input = format_user_input_for_read(
             local_input,
             temp_file_path,
