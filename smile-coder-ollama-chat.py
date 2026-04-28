@@ -575,8 +575,7 @@ def agent_workflow(user_input, cancel_event=None):
     debug_log("agent_workflow.Setting messages with system prompt and history")    
     # 1. Build the messages list
     # Setup the ReAct system prompt
-    messages = []
-    messages.append(system_messages)
+    messages = system_messages[:] # copy
     # 2. Add context to the conversation (if you want the model to see history)
     for entry in context:
         messages.append({'role': 'user', 'content': entry.get('user_input', '')})
