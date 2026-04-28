@@ -29,8 +29,9 @@ from langchain_ollama import ChatOllama
 from langchain_core.tools import tool
 from langchain.agents import create_agent
 
-CODE_MODEL = 'llama3.2:latest'    # works
+# CODE_MODEL = 'llama3.2:latest'
 # CODE_MODEL = 'gemma4:26b'
+CODE_MODEL = 'gpt-oss:20b'
 
 FONT_SIZE = 12
 file_state = {'last_file_path': None}
@@ -45,7 +46,11 @@ system_prompt = (
     "Answer in English and provide detailed explanations for your answers. "
     "Use simple language when explaining complex concepts. "
     "Be patient and kind to students who may not understand things easily. "
-    "Be concise and clear in your responses. "    
+    "Be concise, clear, and just direct answer to the questions in your responses. "
+    "\nAvailable Tools: \n"
+    "- help_read_file: Read content of a file. Input: filename string only.\n"
+    "\n**IMPORTANT**: If the user's questions are not related to code or the Available Tools mentioned below, just answer the general question. "
+    "\n**IMPORTANT**: When using tool, help_read_file, the exact file path that is given must be used as the Input. "        
 )
 
 
@@ -477,7 +482,7 @@ def agent_workflow(user_input, cancel_event=None):
     try:    
         # 4. Create the Agent        
         debug_log("agent_workflow: create_agent()")
-        agent = create_agent(model=llm, tools=None, system_prompt=system_prompt)
+        agent = create_agent(model=llm, tools=python_tools, system_prompt=system_prompt)
     except Exception as e:
         error_msg = f"agent_workflow.create_agent().Exception error: {str(e)}"
         debug_log(f"agent_workflow.create_agent.Exception")
