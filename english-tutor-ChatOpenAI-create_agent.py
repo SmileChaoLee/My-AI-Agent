@@ -25,13 +25,12 @@ except ImportError:
     PromptSession = None
     KeyBindings = None
 
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langchain.agents import create_agent
 
-# LLM_NAME = 'llama3.2:latest'
-# LLM_NAME = 'gemma4:26b'
-LLM_NAME = 'gpt-oss:20b'
+# Updated to use the OpenRouter cloud model
+LLM_NAME = 'openai/gpt-oss-20b:free'
 
 FONT_SIZE = 12
 file_state = {'last_file_path': None}
@@ -81,6 +80,11 @@ def help_read_file(path_input: str) -> str:
     # Resolve path
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
     return read_file_content(target_path)    
+
+@tool
+def noop(input: str) -> str:
+    """Does nothing – useful when the agent needs to finish without calling a real tool."""
+    return ""  
 
 # Define LangChain Tools
 python_tools = [help_read_file]
@@ -133,17 +137,17 @@ def read_file_content(path):
         print_msg(f"Error reading file {path}: {exc}")
         return None
 
-    
+
 def check_file_path(user_input):
     local_input = user_input
     temp_file_path = extract_file_path(local_input)
-    debug_log(f"process_gui_request: file_path: {temp_file_path}")  
-    if temp_file_path:          
+    debug_log(f"process_gui_request: file_path: {temp_file_path}")
+    if temp_file_path:
         file_content = read_file_content(temp_file_path)
         if file_content is None:                    
             print_msg(f"Could not read the requested file: {temp_file_path}")
         else:
-            debug_log(f"process_gui_request: file_content is not None")        
+            debug_log(f"process_gui_request: file_content is not None")                                                
 
 
 def create_file_content_frame(parent, path, content):
@@ -233,7 +237,7 @@ def process_gui_request(user_input, request_parent, status_label,
     gui_output_widget = request_output_widget
 
     def worker():
-        try:                 
+        try:     
             check_file_path(user_input)
             
             debug_log("process_gui_request: time.time()")
@@ -405,7 +409,7 @@ def get_multiline_input(prompt_text='-> '):
         while True:
             if not lines:
                 line = input(prompt_text)
-            else:    
+            else:
                 line = input('-> ')
             if line.lower() == "exit":
                 return EXIT_COMMAND
@@ -468,12 +472,13 @@ def agent_workflow(user_input, cancel_event=None):
     messages.append(("user", user_input))
 
     # 2. Initialize LangChain Components
-    debug_log("agent_workflow: ChatOllama()")
-    llm = ChatOllama(
+    debug_log("agent_workflow: ChatOpenAI() for OpenRouter")
+    llm = ChatOpenAI(
         model=LLM_NAME,
         temperature=1.0,
-        num_ctx=8192,
-        timeout=None,
+        # OpenRouter specific configuration
+        openai_api_base="https://openrouter.ai/api/v1",
+        openai_api_key=os.getenv("OPENROUTER_API_KEY"),
         streaming=False,
     )
     # debug_log(f"{llm.invoke('Hello, who are you?')}")
@@ -511,7 +516,7 @@ def agent_workflow(user_input, cancel_event=None):
 
 
 def main():
-    while True:        
+    while True:
         print_msg("\nHow can I help you? ('Ctrl+O' to submit', 'exit'+'Ctrl+O' to quit):")
         user_input = get_multiline_input('-> ')
         
@@ -539,7 +544,7 @@ def main():
             
 if __name__ == "__main__":
     try:
-        gui_main()        
+        gui_main()
     except Exception as e:
         print_msg(f"GUI unavailable, falling back to CLI: {e}")
         main()

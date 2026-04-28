@@ -24,9 +24,9 @@ except ImportError:
     PromptSession = None
     KeyBindings = None
 
-CODE_MODEL = 'llama3.2:latest'
-# CODE_MODEL = 'gemma4:26b'
-# CODE_MODEL = 'gpt-oss:20b'
+LLM_NAME = 'llama3.2:latest'
+# LLM_NAME = 'gemma4:26b'
+# LLM_NAME = 'gpt-oss:20b'
 
 FONT_SIZE = 12
 file_state = {'last_file_path': None}
@@ -41,6 +41,7 @@ system_messages = [
         """
         You are a English tutor who is a native American English speaker familiar with teaching conversation and grammar.
         You like to make conversation and chat.
+        You alwasys the user's correct grammar or spelling errors in your responses.
         Answer in English and provide detailed explanations for your answers.
         Use simple language when explaining complex concepts.
         Be patient and kind to students who may not understand things easily.
@@ -468,10 +469,10 @@ def agent_workflow(user_input, cancel_event=None):
         try:
             # Use ollama.chat instead of generate            
             response = ollama.chat(
-                model=CODE_MODEL,
+                model=LLM_NAME,
                 messages=messages,
                 options={
-                    'temperature': 0.0,                    
+                    'temperature': 1.0,                    
                     'num_ctx': 8192,
                     'stop': ["Observation:", "Observation"] # Force the model to stop here
                 },                
