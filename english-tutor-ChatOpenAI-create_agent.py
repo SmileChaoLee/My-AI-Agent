@@ -14,7 +14,8 @@ try:
 except ImportError as exc:
     tk = None
     ScrolledText = None
-    filedialog = None    
+    filedialog = None
+    print("failed to import tkinter for GUI mode.")
 else:    
     print("Successfully imported tkinter for GUI mode.")
 
@@ -29,15 +30,51 @@ from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langchain.agents import create_agent
 
-# Updated to use the OpenRouter cloud model
-LLM_NAME = 'openai/gpt-oss-20b:free'
+try:
+    import speech_recognition as sr
+    hasSpeechRecognition = True
+except Exception as e:
+    hasSpeechRecognition = False
+    print(f"SpeechRecognition not installed: {e}")
 
+try:
+    from gtts import gTTS
+    hasGtts = True
+except Exception as e:
+    hasGtts = False
+    print(f"gTTS not installed: {e}")
+
+try:
+    # Using `playsound` (recommended for cross‑platform)
+    from playsound import playsound
+    hasPlaySound = True
+except Exception:
+    hasPlaySound = False
+    print(f"playsound not installed: {e}")
+    """
+    # Try the OS default player as a backup
+    if sys.platform.startswith('darwin'):      # macOS
+        os.system(f"open '{tmp_path}'")
+    elif os.name == 'nt':                      # Windows
+        os.startfile(tmp_path)
+    else:                                      # Linux / BSD
+        os.system(f"xdg-open '{tmp_path}'")    
+    """
+
+# Updated to use the OpenRouter cloud modely
+LLM_NAME = 'openai/gpt-oss-20b:free'
 FONT_SIZE = 12
+IS_DEBUG = True
+
 file_state = {'last_file_path': None}
 context = []
-# GUI log widget reference; set in gui_main().
+history_frame = None
+history_canvas = None
+request_frame = None
+gui_input_widget = None
 gui_output_widget = None
-IS_DEBUG = True
+listening_to_mic = False
+speech_content = None
 
 system_prompt = (
     "You are a English tutor who is a native American English speaker familiar with teaching conversation and grammar. "
@@ -54,8 +91,7 @@ system_prompt = (
 )
 
 
-def print_msg(message):    
-    global gui_output_widget
+def print_msg(message):        
     if gui_output_widget is not None:
         try:
             gui_output_widget.after(0, lambda: append_output_text(gui_output_widget, message))
@@ -64,10 +100,15 @@ def print_msg(message):
     else:
         print(message)
 
-
 def debug_log(message):
     if IS_DEBUG:
         print_msg(f"DEBUG: {message}")    
+
+def has_letters(text):
+    return bool(re.search(r'[a-zA-Z]', text))
+
+def has_digits(text):
+    return bool(re.search(r'\d', text))
 
 
 # --- TOOLS ---
@@ -93,7 +134,6 @@ python_tools = [help_read_file]
 def prompt_tkinter_install_help():
     if tk is not None:
         return
-
     print('\nTkinter is not available in this Python environment.')
     print('The GUI requires tkinter to run. You can continue using the CLI mode.')
     choice = input('Would you like installation instructions for tkinter? (y/n): ').strip().lower()
@@ -193,36 +233,41 @@ def cancel_request(cancel_event, status_label, cancel_button):
     cancel_button.pack_forget()
 
 
-def process_gui_request(user_input, request_parent, status_label,
-                        cancel_button, cancel_event, history_canvas=None):
-    debug_log(f"process_gui_request: user_input: {user_input}")
-    if not user_input.strip():
-        status_label.config(text='Please enter a request.')
-        return
-
-    request_frame = tk.Frame(request_parent, bd=1, relief='solid', padx=4, pady=4)
+def build_gui_request_output_widget():
+    global request_frame, gui_output_widget
+    request_frame = tk.Frame(history_frame, bd=1, relief='solid', padx=4, pady=4)
     request_frame.pack(fill='x', padx=8, pady=4, expand=False)
-
-    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', FONT_SIZE, 'bold'))
-    request_header.pack(fill='x')
-
-    request_output_widget = tk.Text(request_frame, wrap='word', state='disabled', 
+    gui_output_widget = tk.Text(request_frame, wrap='word', state='disabled', 
                                     borderwidth=0, highlightthickness=0, 
                                     bg='#f0f0f0', font=('TkDefaultFont', FONT_SIZE))
-    request_output_widget.pack(
+    gui_output_widget.pack(
         fill='both',  # Essential: fills the space
         expand=True,  # Essential: grows with the window
         side='bottom' # Or wherever you place it
     )
 
-    def append_response_text(text):
-        request_output_widget.configure(state='normal')
-        request_output_widget.insert('end', text + '\n')
-        request_output_widget.see('end')
-        request_output_widget.configure(state='disabled')
-        if history_canvas is not None:
-            history_canvas.after(50, lambda: history_canvas.yview_moveto(1.0))
+
+def append_response_text(text):
+    if gui_output_widget is None:
+        return
+    gui_output_widget.configure(state='normal')
+    gui_output_widget.insert('end', text + '\n')
+    gui_output_widget.see('end')
+    gui_output_widget.configure(state='disabled')
+    if history_canvas is not None:
+        history_canvas.after(50, lambda: history_canvas.yview_moveto(1.0))
+
+
+def process_gui_request(user_input, status_label, cancel_button, cancel_event):    
+    debug_log(f"process_gui_request: user_input: {user_input}")
+    if not user_input.strip():
+        status_label.config(text='Please enter a request.')
+        return
+
+    build_gui_request_output_widget()
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', FONT_SIZE, 'bold'))
+    request_header.pack(fill='x')
 
     append_response_text(f">>> {user_input}")
     append_response_text(">>> Processing your request, please wait...")
@@ -233,37 +278,147 @@ def process_gui_request(user_input, request_parent, status_label,
     cancel_button.pack(side='right')
     cancel_button.config(command=lambda: cancel_request(cancel_event, status_label, cancel_button))
 
-    global gui_output_widget
-    gui_output_widget = request_output_widget
-
     def worker():
         try:     
-            check_file_path(user_input)
-            
+            check_file_path(user_input)            
             debug_log("process_gui_request: time.time()")
             start_time = time.time()
             debug_log("process_gui_request: agent_workflow()")
             response = agent_workflow(user_input, cancel_event)            
             end_time = time.time()    
-            debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
-        
-            if not cancel_event.is_set():                
-                print_msg(f'\nAgent response:\n\n{response}')                
+            debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")        
+            if not cancel_event.is_set():
+                add_to_context(user_input, response)
+                print_msg(f'\nAgent response:\n\n{response}')    
+                if has_letters(response) or has_digits(response):
+                    global speech_content
+                    speech_content = response
+                    text_to_speech(speech_content)  # speaking            
         except Exception as exc:
             if not cancel_event.is_set():
                 print_msg(f'\nError: {exc}')                
         finally:
             if not cancel_event.is_set():
-                add_to_context(user_input, response)
                 status_label.after(0, lambda: status_label.config(text='Ready', fg='green', font=('TkDefaultFont', FONT_SIZE, 'bold')))
             cancel_button.after(0, lambda: cancel_button.pack_forget())
-
     threading.Thread(target=worker, daemon=True).start()
+
+
+def build_history_canvas_frame(w_root):
+    global history_frame, history_canvas    
+    history_frame_container = tk.Frame(w_root)
+    history_frame_container.pack(fill='both', padx=8, pady=(0, 8), expand=True)
+    history_canvas = tk.Canvas(history_frame_container, bd=0, highlightthickness=0)
+    history_canvas.pack(side='left', fill='both', expand=True)
+    scrollbar = tk.Scrollbar(history_frame_container, orient='vertical', command=history_canvas.yview)
+    scrollbar.pack(side='right', fill='y')
+    history_canvas.configure(yscrollcommand=scrollbar.set)
+    history_frame = tk.Frame(history_canvas)
+    history_window = history_canvas.create_window((0, 0), window=history_frame, anchor='nw')
+    
+    def on_history_configure(event):
+        history_canvas.configure(scrollregion=history_canvas.bbox('all'))        
+    history_frame.bind('<Configure>', on_history_configure)
+    
+    def on_canvas_configure(event):
+        history_canvas.itemconfigure(history_window, width=event.width)
+    history_canvas.bind('<Configure>', on_canvas_configure)
+
+    output_label = tk.Label(history_frame, text='Output:', font=('TkDefaultFont', FONT_SIZE, 'bold'))
+    output_label.pack(anchor='w')
+
+
+def build_gui_input_widget(w_root):
+    global gui_input_widget
+    input_label = tk.Label(w_root, text='Enter your request and click Submit:',
+                           font=('TkDefaultFont', FONT_SIZE, 'bold'))  
+    input_label.pack(anchor='w', padx=8, pady=(8, 0))
+    gui_input_widget = ScrolledText(w_root, wrap='word', width=110, height=8, font=('TkDefaultFont', FONT_SIZE))
+    gui_input_widget.pack(fill='both', padx=8, pady=4, expand=False)    
+
+
+# -------------  STT Helper ------------------------------------------
+def start_listening_to_mic():
+    """
+    Record a clip from the default mic
+    and return the transcribed text (or an error message).
+    """
+    recognizer = sr.Recognizer()
+    # 1. Grab a short chunk from the microphone
+    with sr.Microphone() as source:
+        print_msg("Mic active – please speak…")
+        # Optional: adjust for ambient noise
+        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+        # "listening_to_mic" is global variable
+        while listening_to_mic:            
+            try:
+                # audio = recognizer.listen(source, timeout=10, phrase_time_limit=10)
+                audio = recognizer.listen(source, timeout=5)
+                # 2. Convert to text using Google Web Speech (free, no API key)
+                text = recognizer.recognize_google(audio)
+                gui_input_widget.insert('end', f"\n{text}")
+            except sr.WaitTimeoutError:
+                continue                    
+            except sr.UnknownValueError:
+                continue
+            except sr.RequestError as e:
+                continue
+            except Exception as e:
+                print_msg(f"start_listening_to_mic.Unexpected error: {e}")
+                break
+        print_msg("start_listening_to_mic.Stopped listening.")
+
+# ----  You only need to run once to install the runtime ----
+# pip install gtts  # (and optionally pip install playsound)
+# ==============================================================
+#  Text‑to‑Speech helper – text_to_speech(text, lang='en')
+# ==============================================================
+def text_to_speech(text, lang='en', temp_file=None):
+    """
+    Convert *text* to speech and play it immediately.
+    
+    Parameters
+    ----------
+    text : str
+        The string you want spoken.
+    lang : str, optional
+        ISO‑639‑1 language code (default='en').
+        gTTS supports many languages – see https://gtts.readthedocs.io/en/latest/module.html
+    temp_file : str, optional
+        Path to store the temporary `.mp3` file.  
+        If omitted, an in‑memory temporary file is used.
+
+    Returns
+    -------
+    tmp_path : str
+        Path to the generated audio file (useful if you want to keep it).
+    """
+    # 1️⃣ Make sure the library is available
+    if not hasGtts or not hasPlaySound:
+        return None
+    # 2️⃣ Create the TTS object
+    tts = gTTS(text=text, lang=lang)
+    # 3️⃣ Save to a temporary file (or user‑supplied path)
+    if temp_file is None:
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(suffix='.mp3')
+        os.close(fd)    # close the FD – gTTS will open it
+    else:
+        tmp_path = temp_file
+    # 4️⃣ Play the file (fallback to system player)
+    try:
+        tts.save(tmp_path)
+        # Using `playsound` (recommended for cross‑platform)
+        playsound(tmp_path)
+    except Exception as e:
+        print_msg(f"text_to_speech.Exception: {e}")
+
+    return tmp_path
 
 
 def gui_main():
     if tk is None or ScrolledText is None:
-        print('tkinter is not available; falling back to CLI.')
+        print('gui_main.tkinter is not available; falling back to CLI.')
         prompt_tkinter_install_help()
         main()
         return
@@ -271,9 +426,9 @@ def gui_main():
     try:
         root = tk.Tk()
     except Exception as exc:
-        print(f'GUI startup failed ({exc}); falling back to CLI.')
+        print(f'gui_main.GUI startup failed ({exc}); falling back to CLI.')
         main()
-        return
+        return    
 
     root.title('Smile Coder GUI')
     root.geometry('1000x800')
@@ -286,72 +441,63 @@ def gui_main():
     root.geometry(f"{width}x{height}+{x}+{y}")
     root.geometry('1000x800')  # Optional: keep original size if needed
 
-    label = tk.Label(root, text='Enter your request and click Submit:',
-                     font=('TkDefaultFont', FONT_SIZE, 'bold'))
+    build_history_canvas_frame(root)
+    build_gui_input_widget(root)    
 
-    input_widget = ScrolledText(root, wrap='word', width=110, height=8, font=('TkDefaultFont', FONT_SIZE))
-
+    shortcuts_label = tk.Label(root, text='Shortcuts: Ctrl+O = Submit, Ctrl+L = Clear, Ctrl+Q = Exit', anchor='w', fg='gray30', font=('TkDefaultFont', FONT_SIZE))    
+    shortcuts_label.pack(fill='x', padx=8, pady=(0, 4))    
     button_frame = tk.Frame(root)
-
-    shortcuts_label = tk.Label(root, text='Shortcuts: Ctrl+O = Submit, Ctrl+L = Clear, Ctrl+Q = Exit', anchor='w', fg='gray30', font=('TkDefaultFont', FONT_SIZE))
-
-    history_frame_container = tk.Frame(root)
-    history_frame_container.pack(fill='both', padx=8, pady=(0, 8), expand=True)
-
-    label.pack(anchor='w', padx=8, pady=(8, 0))
-
-    input_widget.pack(fill='both', padx=8, pady=4, expand=False)
-
-    shortcuts_label.pack(fill='x', padx=8, pady=(0, 4))
-
     button_frame.pack(fill='x', padx=8, pady=4)
-
-    history_canvas = tk.Canvas(history_frame_container, bd=0, highlightthickness=0)
-    history_canvas.pack(side='left', fill='both', expand=True)
-
-    scrollbar = tk.Scrollbar(history_frame_container, orient='vertical', command=history_canvas.yview)
-    scrollbar.pack(side='right', fill='y')
-
-    history_canvas.configure(yscrollcommand=scrollbar.set)
-
-    history_frame = tk.Frame(history_canvas)
-    history_window = history_canvas.create_window((0, 0), window=history_frame, anchor='nw')
-
-    def on_history_configure(event):
-        history_canvas.configure(scrollregion=history_canvas.bbox('all'))
-    history_frame.bind('<Configure>', on_history_configure)
-
-    def on_canvas_configure(event):
-        history_canvas.itemconfigure(history_window, width=event.width)
-    history_canvas.bind('<Configure>', on_canvas_configure)
-
-    output_label = tk.Label(history_frame, text='Output:', font=('TkDefaultFont', FONT_SIZE, 'bold'))
-    output_label.pack(anchor='w')
-
+    
     def clear_output():
         for child in history_frame.winfo_children():
             child.destroy()
         output_label = tk.Label(history_frame, text='Output:')
         output_label.pack(anchor='w')
 
+    def on_submit(event=None):
+        text = gui_input_widget.get('1.0', 'end').strip()
+        if text:
+            process_gui_request(text, status_label, cancel_button, cancel_event)
+            gui_input_widget.delete('1.0', 'end')        
+
     def browse_file():
         if filedialog is None:
             return
         path = filedialog.askopenfilename(initialdir=os.getcwd(), title='Select a file')
         if path:
-            if input_widget.get('1.0', 'end').strip():
-                input_widget.insert('end', ' ' + path)
+            if gui_input_widget.get('1.0', 'end').strip():
+                gui_input_widget.insert('end', ' ' + path)
             else:
-                input_widget.insert('end', path)
-
-    def on_submit(event=None):
-        text = input_widget.get('1.0', 'end').strip()
-        if text:
-            process_gui_request(text, history_frame, status_label, cancel_button, cancel_event, history_canvas)
-            input_widget.delete('1.0', 'end')
+                gui_input_widget.insert('end', path)
 
     def on_clear(event=None):
         clear_output()
+
+    def on_mic():        
+        if not hasSpeechRecognition:
+            print_msg(f"SpeechRecognition not installed: {e}")
+            return
+        global listening_to_mic
+        listening_to_mic = not listening_to_mic
+        if listening_to_mic:
+            mic_button.config(bg='red')
+            mic_thread = threading.Thread(target=start_listening_to_mic, daemon=True)
+            mic_thread.start()
+            print_msg("gui_main.on_mic.Mic button pressed – started listening.")
+        else:
+            mic_button.config(bg=original_mic_bg)            
+            print_msg("gui_main.on_mic.Mic button pressed – stopping listening.")
+        
+    def on_speak():    
+        if not speech_content:
+            print_msg("gui_main.on_speak.Nothing to say, speech_content is empty.")
+            return
+        # Speak it out loud
+        try:
+            text_to_speech(speech_content)
+        except Exception as exc:
+            print_msg(f"gui_main.on_speak.Error in TTS: {exc}")
 
     default_status_font = ('TkDefaultFont', FONT_SIZE, 'bold')
     status_frame = tk.Frame(root)
@@ -371,9 +517,6 @@ def gui_main():
 
     cancel_event = threading.Event()
 
-    global gui_output_widget
-    gui_output_widget = None
-
     submit_button = tk.Button(button_frame, text='Submit', command=on_submit,
                               font=('TkDefaultFont', FONT_SIZE))
     submit_button.pack(side='left')
@@ -386,16 +529,35 @@ def gui_main():
                              font=('TkDefaultFont', FONT_SIZE))
     clear_button.pack(side='left', padx=(8, 0))
 
+    exit_button = tk.Button(button_frame, text='Exit', command=root.destroy,
+                            font=('TkDefaultFont', FONT_SIZE))    
+    exit_button.pack(side='left', padx=(8, 0))
+
+    speak_button = tk.Button(
+        button_frame,
+        text='Speak',
+        command=on_speak,
+        font=('TkDefaultFont', FONT_SIZE)
+    )
+    speak_button.pack(side='right', padx=(8, 0))
+
+    mic_button = tk.Button(
+            button_frame,            
+            text="Mic",
+            command=on_mic,
+            font=('TkDefaultFont', FONT_SIZE),
+            compound=tk.LEFT,  # show image/text together if you use both
+        )
+    mic_button.pack(side='right', padx=(8, 0))
+    # Remember the original bg colour (works on Windows, macOS, Linux)
+    original_mic_bg = mic_button.cget('bg')   # <-- store it now!
+
     root.bind('<Control-o>', on_submit)
     root.bind('<Control-O>', on_submit)
     root.bind('<Control-l>', on_clear)
     root.bind('<Control-L>', on_clear)
     root.bind('<Control-q>', lambda event: root.destroy())
     root.bind('<Control-Q>', lambda event: root.destroy())
-
-    exit_button = tk.Button(button_frame, text='Exit', command=root.destroy,
-                            font=('TkDefaultFont', FONT_SIZE))    
-    exit_button.pack(side='left', padx=(8, 0))
 
     root.mainloop()
 
