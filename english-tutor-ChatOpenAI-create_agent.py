@@ -289,11 +289,14 @@ def process_gui_request(user_input, status_label, cancel_button, cancel_event):
             debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")        
             if not cancel_event.is_set():
                 add_to_context(user_input, response)
-                print_msg(f'\nAgent response:\n\n{response}')    
+                print_msg(f'\nAgent response:\n\n{response}')
+                global speech_content
                 if has_letters(response) or has_digits(response):
-                    global speech_content
                     speech_content = response
-                    text_to_speech(speech_content)  # speaking            
+                else:                    
+                    speech_content = "Empty response"
+                    print_msg(f'\nspeech_content = {speech_content}')
+                text_to_speech(speech_content)  # speaking            
         except Exception as exc:
             if not cancel_event.is_set():
                 print_msg(f'\nError: {exc}')                
@@ -700,9 +703,17 @@ def main():
         if response is not None:
             print_msg(f"\nAgent response:\n\n {response}")
         else:
-            print_msg("Failed to get a response from the Agent.")        
-    
+            print_msg("Failed to get a response from the Agent.")
         add_to_context(user_input, response)
+
+        global speech_content
+        if has_letters(response) or has_digits(response):
+            speech_content = response
+        else:                    
+            speech_content = "Empty response"
+            print_msg(f'\nspeech_content = {speech_content}')
+        text_to_speech(speech_content)  # speaking
+    
             
 if __name__ == "__main__":
     try:
