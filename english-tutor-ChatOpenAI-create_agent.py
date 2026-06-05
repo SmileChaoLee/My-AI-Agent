@@ -48,7 +48,7 @@ try:
     # Using `playsound` (recommended for cross‑platform)
     from playsound import playsound
     hasPlaySound = True
-except Exception:
+except Exception as e:
     hasPlaySound = False
     print(f"playsound not installed: {e}")
     """
