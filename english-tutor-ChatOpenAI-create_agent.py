@@ -479,7 +479,7 @@ def gui_main():
 
     def on_mic():        
         if not hasSpeechRecognition:
-            print_msg(f"SpeechRecognition not installed: {e}")
+            print_msg(f"SpeechRecognition not installed")
             return
         global listening_to_mic
         listening_to_mic = not listening_to_mic
