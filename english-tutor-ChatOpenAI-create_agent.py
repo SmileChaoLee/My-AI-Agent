@@ -280,7 +280,7 @@ def process_gui_request(user_input, status_label, cancel_button, cancel_event):
     if not user_input.strip():
         status_label.config(text='Please enter a request.')
         return    
-    text_to_speech(f"the user said {user_input}")  # speak out the user input
+    # text_to_speech(f"the user said {user_input}")  # speak out the user input
     build_gui_request_output_widget()
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
     request_header = tk.Label(request_frame, text=f"Request ({timestamp}): {user_input}", anchor='w', font=('TkDefaultFont', FONT_SIZE, 'bold'))
