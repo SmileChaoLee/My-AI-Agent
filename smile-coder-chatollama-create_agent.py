@@ -131,7 +131,24 @@ def help_read_file(path_input: str) -> str:
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
-    return read_file_content(target_path)    
+    return read_file_content(target_path)
+
+from duckduckgo_search import DDGS
+import json
+@tool
+def web_search(query: str) -> str:
+    """
+    Search the web for up-to-date information.
+    """
+    debug_log(f"web_search.Searching the web for: {query}")
+    results = DDGS().text(query, max_results=3)
+    formatted = []
+    for r in results:
+        formatted.append({
+            "title": r.get("title"),
+            "snippet": r.get("body")
+        })
+    return json.dumps(formatted)
 
 @tool
 def noop(input: str) -> str:
@@ -139,7 +156,7 @@ def noop(input: str) -> str:
     return ""  
 
 # Define LangChain Tools
-python_tools = [help_read_file, sandbox_exec]
+python_tools = [help_read_file, sandbox_exec, web_search]
 
 
 def prompt_tkinter_install_help():

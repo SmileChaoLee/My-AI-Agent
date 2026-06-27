@@ -115,8 +115,27 @@ def help_read_file(path_input: str) -> str:
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
     return read_file_content(target_path)    
 
-AVAILABLE_TOOLS = {"python_repl": python_repl, "sandbox_exec": sandbox_exec, "help_read_file": help_read_file}
-python_tools=[help_read_file, sandbox_exec] # native tool support in .chat() with function calling
+from duckduckgo_search import DDGS
+import json
+def web_search(query: str) -> str:
+    """
+    Search the web for up-to-date information.
+    """
+    debug_log(f"web_search.Searching the web for: {query}")
+    results = DDGS().text(query, max_results=3)
+    formatted = []
+    for r in results:
+        formatted.append({
+            "title": r.get("title"),
+            "snippet": r.get("body")
+        })
+    return json.dumps(formatted)
+
+AVAILABLE_TOOLS = {"python_repl": python_repl, "sandbox_exec": sandbox_exec,
+                   "help_read_file": help_read_file, "web_search": web_search}
+# native tool support in .chat() with function calling
+python_tools=[help_read_file, sandbox_exec, web_search]
+
 
 def prompt_tkinter_install_help():
     if tk is not None:
