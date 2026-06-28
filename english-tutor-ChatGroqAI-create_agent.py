@@ -657,7 +657,7 @@ def agent_workflow(user_input, cancel_event=None):
     messages.append(("user", user_input))
 
     # 2. Initialize LangChain Components
-    debug_log("agent_workflow: ChatOpenAI() for OpenRouter")
+    debug_log("agent_workflow: ChatOpenAI() for Groq AI")
     llm = ChatOpenAI(
         model=llm_name,
         temperature=1.0,
