@@ -62,7 +62,10 @@ except Exception as e:
     """
 
 # Updated to use the OpenRouter cloud modely
-LLM_NAME = 'openai/gpt-oss-20b:free'
+llm_name = 'openai/gpt-oss-20b:free'
+base_url="https://openrouter.ai/api/v1"
+api_key=os.getenv("OPENROUTER_API_KEY")
+
 FONT_SIZE = 12
 IS_DEBUG = True
 
@@ -137,15 +140,10 @@ def help_read_file(path_input: str) -> str:
     path = path_input.strip().strip('`').strip("'").strip('"')    
     # Resolve path
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
-    return read_file_content(target_path)    
-
-@tool
-def noop(input: str) -> str:
-    """Does nothing – useful when the agent needs to finish without calling a real tool."""
-    return ""  
+    return read_file_content(target_path)     
 
 # Define LangChain Tools
-python_tools = [help_read_file]
+python_tools = []
 
 
 def prompt_tkinter_install_help():
@@ -656,11 +654,11 @@ def agent_workflow(user_input, cancel_event=None):
     # 2. Initialize LangChain Components
     debug_log("agent_workflow: ChatOpenAI() for OpenRouter")
     llm = ChatOpenAI(
-        model=LLM_NAME,
+        model=llm_name,
         temperature=1.0,
         # OpenRouter specific configuration
-        openai_api_base="https://openrouter.ai/api/v1",
-        openai_api_key=os.getenv("OPENROUTER_API_KEY"),
+        openai_api_base=base_url,
+        openai_api_key=api_key,
         streaming=False,
     )
     # debug_log(f"{llm.invoke('Hello, who are you?')}")

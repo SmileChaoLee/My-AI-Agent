@@ -1,6 +1,6 @@
+
 import platform
 
-import ollama
 import os
 import re
 import time
@@ -13,7 +13,7 @@ try:
 except ImportError as exc:
     tk = None
     ScrolledText = None
-    filedialog = None    
+    filedialog = None
     print("failed to import tkinter for GUI mode.")
 else:    
     print("Successfully imported tkinter for GUI mode.")
@@ -24,6 +24,10 @@ try:
 except ImportError:
     PromptSession = None
     KeyBindings = None
+
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from langchain.agents import create_agent
 
 try:
     import speech_recognition as sr
@@ -54,11 +58,13 @@ except Exception as e:
         os.startfile(tmp_path)
     else:                                      # Linux / BSD
         os.system(f"xdg-open '{tmp_path}'")    
-    """    
+    """
 
-LLM_NAME = 'llama3.2:latest'
-# LLM_NAME = 'gemma4:26b'
-# LLM_NAME = 'gpt-oss:20b'
+# llm_name = "llama-3.1-8b-instant" # 14.4k requests per day
+llm_name = "openai/gpt-oss-20b"     # 1k requests per day
+# llm_name = "meta-llama/llama-prompt-guard-2-86m" #no works at this case
+base_url="https://api.groq.com/openai/v1"
+api_key=os.getenv("GROQ_API_KEY")
 
 FONT_SIZE = 12
 IS_DEBUG = True
@@ -73,42 +79,39 @@ gui_output_widget = None
 listening_to_mic = False
 speech_content = None
 
-system_messages = [
-    {'role': 'system', 'content': (
-        "You are an expert English Tutor, a native American speaker specializing in conversational English and grammar. "
-        "Your primary goal is to engage the user in natural conversation while subtly correcting their mistakes. "
-        "\n\n"
-        "### ROLE & PERSONA ###\n"
-        "- Be patient, kind, and encouraging. Never make the user feel embarrassed about mistakes. "
-        "- Use simple, clear English. Avoid overly complex jargon unless explaining it. "
-        "- Act like a friendly conversation partner, not a rigid teacher. "
-        "\n\n"
-        "### INSTRUCTIONS ###\n"
-        "1. **Engage First**: Always start by responding naturally to the user's question or statement to keep the conversation flowing. "
-        "2. **Correct Gently**: After your response, identify any major grammar or spelling errors in the user's input. "
-        "   - Do not list every single error. Focus on the most impactful ones. "
-        "   - Explain *why* it is incorrect and provide the correct version. "
-        "   - Use the format: 'By the way, a small tip: [Explanation of correction].' "
-        "   - D0 not Use the format: 'By the way, a small tip: [Explanation of correction].' if there is no mistake. "
-        "3. **Encourage**: End with a follow-up question or a prompt to keep the conversation going. "
-        "\n\n"
-        "### OUTPUT FORMAT ###\n"
-        "- Speak in English only. "
-        "- Keep responses concise but detailed enough to be helpful. "
-        "- Do not use markdown headers (like # or ##) in your spoken response. "
-        "- Do not mention that you are an AI. "
-        "\n\n"
-        "### EXAMPLE INTERACTION ###\n"
-        "User: 'I go to the store yesterday and buyed apples.'\n"
-        "You: 'That sounds like a great trip to the store! I hope you found some delicious apples. \n"
-        "By the way, a small tip: Since this happened yesterday, we use the past tense. Instead of 'go' and 'buyed', we say 'went' and 'bought'. So, 'I went to the store yesterday and bought apples.' \n"
-        "Did you buy any other snacks?' "
-    )},
-]
+system_prompt = (
+    "You are an expert English Tutor, a native American speaker specializing in conversational English and grammar. "
+    "Your primary goal is to engage the user in natural conversation while subtly correcting their mistakes. "
+    "\n\n"
+    "### ROLE & PERSONA ###\n"
+    "- Be patient, kind, and encouraging. Never make the user feel embarrassed about mistakes. "
+    "- Use simple, clear English. Avoid overly complex jargon unless explaining it. "
+    "- Act like a friendly conversation partner, not a rigid teacher. "
+    "\n\n"
+    "### INSTRUCTIONS ###\n"
+    "1. **Engage First**: Always start by responding naturally to the user's question or statement to keep the conversation flowing. "
+    "2. **Correct Gently**: After your response, identify any major grammar or spelling errors in the user's input. "
+    "   - Do not list every single error. Focus on the most impactful ones. "
+    "   - Explain *why* it is incorrect and provide the correct version. "
+    "   - Use the format: 'By the way, a small tip: [Explanation of correction].' "
+    "   - D0 not Use the format: 'By the way, a small tip: [Explanation of correction].' if there is no mistake. "
+    "3. **Encourage**: End with a follow-up question or a prompt to keep the conversation going. "
+    "\n\n"
+    "### OUTPUT FORMAT ###\n"
+    "- Speak in English only. "
+    "- Keep responses concise but detailed enough to be helpful. "
+    "- Do not use markdown headers (like # or ##) in your spoken response. "
+    "- Do not mention that you are an AI. "
+    "\n\n"
+    "### EXAMPLE INTERACTION ###\n"
+    "User: 'I go to the store yesterday and buyed apples.'\n"
+    "You: 'That sounds like a great trip to the store! I hope you found some delicious apples. \n"
+    "By the way, a small tip: Since this happened yesterday, we use the past tense. Instead of 'go' and 'buyed', we say 'went' and 'bought'. So, 'I went to the store yesterday and bought apples.' \n"
+    "Did you buy any other snacks?' "
+)
 
 
-
-def print_msg(message):    
+def print_msg(message):        
     if gui_output_widget is not None:
         try:
             gui_output_widget.after(0, lambda: append_output_text(gui_output_widget, message))
@@ -129,6 +132,7 @@ def has_digits(text):
 
 
 # --- TOOLS ---
+@tool("help_read_file")
 def help_read_file(path_input: str) -> str:
     """Reads a file using absolute or relative paths."""
     debug_log(f"help_read_file().path_input = {path_input}")
@@ -138,8 +142,14 @@ def help_read_file(path_input: str) -> str:
     target_path = os.path.abspath(path) if not os.path.isabs(path) else path    
     return read_file_content(target_path)    
 
-AVAILABLE_TOOLS = {"help_read_file": help_read_file}
-python_tools=[] # native tool support in .chat() with function calling
+@tool
+def noop(input: str) -> str:
+    """Does nothing – useful when the agent needs to finish without calling a real tool."""
+    return ""  
+
+# Define LangChain Tools
+python_tools = [help_read_file]
+
 
 def prompt_tkinter_install_help():
     if tk is not None:
@@ -290,16 +300,16 @@ def process_gui_request(user_input, status_label, cancel_button, cancel_event):
 
     def worker():
         try:     
-            check_file_path(user_input)
+            check_file_path(user_input)            
             debug_log("process_gui_request: time.time()")
             start_time = time.time()
             debug_log("process_gui_request: agent_workflow()")
             response = agent_workflow(user_input, cancel_event)            
             end_time = time.time()    
-            debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")
-            if not cancel_event.is_set():            
+            debug_log(f"process_gui_request.Time taken for response: {end_time - start_time:.2f} seconds")        
+            if not cancel_event.is_set():
                 add_to_context(user_input, response)
-                print_msg(f'\nAgent response:\n\n{response}')                
+                print_msg(f'\nAgent response:\n\n{response}')
                 global speech_content
                 if has_letters(response) or has_digits(response):
                     speech_content = response
@@ -441,7 +451,7 @@ def gui_main():
     except Exception as exc:
         print(f'gui_main.GUI startup failed ({exc}); falling back to CLI.')
         main()
-        return
+        return    
 
     root.title('Smile Coder GUI')
     root.geometry('1000x800')
@@ -461,7 +471,7 @@ def gui_main():
     shortcuts_label.pack(fill='x', padx=8, pady=(0, 4))    
     button_frame = tk.Frame(root)
     button_frame.pack(fill='x', padx=8, pady=4)
-
+    
     def clear_output():
         for child in history_frame.winfo_children():
             child.destroy()
@@ -624,125 +634,68 @@ def add_to_context(user_input, response, max_history=10):
 
 # --- AGENT ENGINE ---
 def agent_workflow(user_input, cancel_event=None):
+    """
+    Uses LangChain to orchestrate the ReAct agent with Ollama.
+    """
+    debug_log("agent_workflow: Started agent_workflow")
     if not user_input.strip():
-        debug_log("agent_workflow.No user input provided.")
+        debug_log("agent_workflow: No user input provided.")
 
-    debug_log("agent_workflow.Setting messages with system prompt and history")    
-    # 1. Build the messages list
-    # Setup the ReAct system prompt
-    # messages = []    
-    messages = system_messages[:] # copy
-    # 2. Add context to the conversation (if you want the model to see history)
+    debug_log("agent_workflow: Setting messages with system prompt and history")    
+    # 1. Prepare the History (Context)
+    # Add history
+    # ------------------------------------------------------------------
+    # 1️⃣ Build the full message list (system prompt + chat history)
+    # ------------------------------------------------------------------
+    # Start with the system prompt (already defined as a string above)
+    messages = []
+    # Append every past user/assistant turn in order
     for entry in context:
-        messages.append({'role': 'user', 'content': entry.get('user_input', '')})
-        messages.append({'role': 'assistant', 'content': entry.get('response', '')})
+        messages.append(("user", entry["user_input"]))
+        messages.append(("assistant", entry["response"]))
+    # Finally, add the current user input
+    messages.append(("user", user_input))
 
-    # 3. Add the current user input
-    messages.append({'role': 'user', 'content': user_input})
+    # 2. Initialize LangChain Components
+    debug_log("agent_workflow: ChatOpenAI() for OpenRouter")
+    llm = ChatOpenAI(
+        model=llm_name,
+        temperature=1.0,
+        # OpenAi specific configuration
+        openai_api_base=base_url,    
+        openai_api_key=api_key,
+        streaming=False,
+    )
+    # debug_log(f"{llm.invoke('Hello, who are you?')}")
 
     full_agent_log = ""
-    
-    # 4. ReAct Loop (Limit to 5 turns to prevent infinite loops)
-    for turn in range(5):
-        debug_log(f"agent_workflow.turn = {turn}")
-        if cancel_event and cancel_event.is_set():
-            break
         
-        tool_calls = []  # To store tool calls from the model
-        message_content = ''
-        try:
-            # Use ollama.chat instead of generate            
-            response = ollama.chat(
-                model=LLM_NAME,
-                messages=messages,
-                options={
-                    'temperature': 1.0,                    
-                    'num_ctx': 8192,
-                    'stop': ["Observation:", "Observation"] # Force the model to stop here
-                },                
-                tools=None
-            )
-            if cancel_event and cancel_event.is_set():
-                full_agent_log += '\n[CANCELLED]'
-                break   # exit the streaming loop
-            # In .chat(), the text is inside chunk['message']['content']
-            # Handle text content (Reasoning)
-            if 'message' in response and 'content' in response['message']:                
-                message_content = response['message']['content']
-                has_letters = bool(re.search(r'[a-zA-Z]', message_content))
-                debug_log(f"agent_workflow.has_letters = {has_letters}.")            
-                has_digits = bool(re.search(r'\d', message_content))
-                debug_log(f"agent_workflow.has_digits  = {has_digits}.")                
-                if has_letters or has_digits:
-                    debug_log(f"agent_workflow.message_content has content.")
-                    full_agent_log += f"\n{message_content}\n"                    
-                    messages.append({'role': 'assistant', 'content': message_content})                                        
-            # Handle tool calls (they arrive in the 'tool_calls' field)
-            if 'message' in response and 'tool_calls' in response['message']:
-                # We store these to process after the stream finishes
-                tool_calls = response['message']['tool_calls']
-                debug_log(f"agent_workflow.has tool_calls.")
-
-            # The following login is for the native call in .chat() with tools
-            # Check if the model wants to call tools
-            if tool_calls:
-                # Note: We include the tool_calls in the message so Ollama knows it asked for them
-                messages.append({
-                    'role': 'assistant', 
-                    'content': message_content, 
-                    'tool_calls': tool_calls
-                })
-                # Handle the tool calls
-                for call in tool_calls:
-                    tool_name = call.function.name
-                    debug_log(f"agent_workflow.for call.tool_name = {tool_name}")
-                    tool_args = call.function.arguments # This is a dictionary                
-                    if tool_name in AVAILABLE_TOOLS:
-                        # Execute the tool
-                        observation = AVAILABLE_TOOLS[tool_name](**tool_args)
-                        # Append the observation to the conversation
-                        messages.append({
-                            'role': 'tool',
-                            'content': str(observation),
-                            'name': tool_name
-                        })
-                        # full_agent_log += f"\n[Tool Observation ({tool_name})] = \n{observation}\n"                        
-                        if observation:
-                            debug_log(f"agent_workflow.{tool_name}.[Tool.Observation.has content]")
-                        else:
-                            debug_log(f"agent_workflow.{tool_name}.[Tool.Observation.no content]")
-            else:
-                # messages.append({'role': 'assistant', 'content': message_content})
-                # The following logic is for backward compatibility                
-                # and instead outputs Action: ... in text
-                # Check if we are done
-                if "Answer:" in message_content:
-                    debug_log(f"agent_workflow.'Answer:' found in response.")
-                    break   # exit the loop ( for _ in range(5) )            
-                # Tool Execution Logic
-                action_match = re.search(r"Action: (\w+): (.*)", message_content, re.DOTALL)
-                debug_log(f"agent_workflow.action_match = {action_match}")
-                if action_match:
-                    tool_name, tool_input = action_match.groups()
-                    debug_log(f"agent_workflow.action_match: tool_name = {tool_name}, tool_input = {tool_input}")
-                    # Use your existing TOOLS dictionary
-                    # observation = AVAILABLE_TOOLS.get(tool_name, lambda x: "Tool not found")(tool_input)
-                    if tool_name in AVAILABLE_TOOLS:
-                        observation = AVAILABLE_TOOLS.get(tool_name)(tool_input)
-                        obs_text = f"Observation: {observation}"
-                        # full_agent_log += f"\n{obs_text}\n"                        
-                        messages.append({'role': 'user', 'content': obs_text})
-                        if observation:
-                            debug_log(f"agent_workflow.[action_match.{tool_name}.Observation has content]")
-                        else:
-                            debug_log(f"agent_workflow.[action_match.{tool_name}.Observation no content]")
-                else:
-                    # If the model didn't provide an Action or Answer, stop or prompt it
-                    break   # exit the loop ( for _ in range(5) )                            
-        except Exception as e:                        
-            error_msg = f"Error: {e}"
-            debug_log(f"agent_workflow.Exception: {error_msg}")
-            full_agent_log += f"\n{error_msg}\n"
+    try:    
+        # 4. Create the Agent        
+        debug_log("agent_workflow: create_agent()")
+        agent = create_agent(model=llm, tools=python_tools, system_prompt=system_prompt)    
+    except Exception as e:
+        error_msg = f"agent_workflow.create_agent().Exception error: {str(e)}"
+        debug_log(f"agent_workflow.create_agent.Exception")
+        full_agent_log += f"\n{error_msg}\n"
+        return full_agent_log
+  
+    # 5. Execute the Agent        
+    debug_log("agent_workflow: agent.invoke()")
+    try:        
+        # messages_0 = [("user", user_input)]
+        result = agent.invoke(input={"messages": messages}, config={"recursion_limit": 50})
+        # This is the right calling format of invoke()
+        #result = agent.invoke(
+        #    input={"messages": [("user", "read output/generated_code.py and run it")]},
+        #    config={"recursion_limit": 50}
+        #)
+        full_agent_log = result["messages"][-1].content    
+    except Exception as e:
+        error_msg = f"agent_workflow.agent.invoke().Exception: {str(e)}"
+        debug_log("agent_workflow.run agent.invoke().Exception")
+        full_agent_log += f"\n{error_msg}\n"
+        return full_agent_log
 
     return full_agent_log
 
@@ -770,7 +723,7 @@ def main():
         if response is not None:
             print_msg(f"\nAgent response:\n\n {response}")
         else:
-            print_msg("Failed to get a response from the Agent.")        
+            print_msg("Failed to get a response from the Agent.")
         add_to_context(user_input, response)
 
         global speech_content
