@@ -1,1 +1,1 @@
-source ~/my-ai-agent/.venv/bin/activate
+source ./.venv/bin/activate
